@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 40" role="img" aria-label="CampusCheck">
+  <rect width="32" height="32" y="4" rx="9" fill="#1B3F9B"/>
+  <path d="m9 20.5 4.5 4.5L23 15" fill="none" stroke="#E8B923" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="42" y="26" fill="#0A1734" font-family="sans-serif" font-size="19" font-weight="700">Campus</text>
+  <text x="113" y="26" fill="#1B3F9B" font-family="sans-serif" font-size="19" font-weight="700">Check</text>
+</svg>

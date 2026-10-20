@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --navy-950: #0a1734;
+  --navy-900: #0d1f4a;
+  --navy-800: #12306e;
+  --blue-700: #1b3f9b;
+  --blue-600: #2452c4;
+  --blue-500: #3b6fe0;
+  --blue-50: #eef3fd;
+  --gold-500: #d4a017;
+  --gold-400: #e8b923;
+  --gold-100: #fbf1d0;
+  --ink: #0f172a;
+  --muted: #526079;
+  --mist: #f5f7fb;
+  --white: #ffffff;
+  --surface: #ffffff;
+  --surface-subtle: #f5f7fb;
+  --border: #dce2ec;
+  --success: #0b5f34;
+  --success-bg: #e3f4ea;
+  --danger: #a4161a;
+  --danger-bg: #fde9e8;
+  --info: #1b3f9b;
+  --info-bg: #eaf0ff;
+  --warning: #8a3b00;
+  --warning-bg: #fff0dd;
+  --purple: #5c3b85;
+  --purple-bg: #f2edfa;
+  --absent: #475569;
+  --absent-bg: #eceff4;
+  --focus: #3b6fe0;
+  --radius: 16px;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --navy-950: #070f24;
+  --navy-900: #0d1f4a;
+  --navy-800: #12306e;
+  --mist: #070f24;
+  --surface: #0d1f4a;
+  --surface-subtle: #12306e;
+  --border: #1e3a7a;
+  --ink: #f5f7fb;
+  --muted: #b8c5e8;
+  --blue-50: #172b50;
+  --gold-100: #4c3c15;
+  --success: #7edba6;
+  --success-bg: #163b2a;
+  --danger: #ff9a94;
+  --danger-bg: #48232b;
+  --info: #9db8ff;
+  --info-bg: #1b3158;
+  --warning: #ffc68e;
+  --warning-bg: #47321f;
+  --purple: #ceb5ff;
+  --purple-bg: #35294d;
+  --absent: #c3cbda;
+  --absent-bg: #27344a;
+  --focus: #e8b923;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --navy-950: #070f24;
+    --navy-900: #0d1f4a;
+    --navy-800: #12306e;
+    --mist: #070f24;
+    --surface: #0d1f4a;
+    --surface-subtle: #12306e;
+    --border: #1e3a7a;
+    --ink: #f5f7fb;
+    --muted: #b8c5e8;
+    --blue-50: #172b50;
+    --gold-100: #4c3c15;
+    --success: #7edba6;
+    --success-bg: #163b2a;
+    --danger: #ff9a94;
+    --danger-bg: #48232b;
+    --info: #9db8ff;
+    --info-bg: #1b3158;
+    --warning: #ffc68e;
+    --warning-bg: #47321f;
+    --purple: #ceb5ff;
+    --purple-bg: #35294d;
+    --absent: #c3cbda;
+    --absent-bg: #27344a;
+    --focus: #e8b923;
+  }
+}

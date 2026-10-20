@@ -1,0 +1,386 @@
+openapi: 3.1.0
+info:
+  title: Campus Attendance API
+  version: 0.1.0-draft
+  description: Draft contract for parallel UI development; replace with the attendance-api specification.
+x-draft: true
+servers:
+  - url: http://localhost:8080
+paths:
+  /auth/refresh:
+    post:
+      operationId: refreshAccessToken
+      responses:
+        "200":
+          description: Access token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token]
+                properties:
+                  access_token: { type: string }
+        "401": { description: Refresh cookie is invalid or expired }
+  /auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authenticated user and access token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token]
+                properties:
+                  access_token: { type: string }
+        "401": { description: Invalid credentials }
+        "423": { description: Account temporarily locked }
+  /auth/signup/claim:
+    post:
+      operationId: claimSignup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matric, email]
+              properties:
+                matric: { type: string }
+                email: { type: string, format: email }
+      responses:
+        "200": { description: Neutral claim response, whether or not the record matches }
+        "429": { description: Too many claim attempts }
+  /auth/signup/verify:
+    post:
+      operationId: verifySignupCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: "^[0-9]{6}$" }
+      responses:
+        "200": { description: Signup email verified }
+        "400": { description: Invalid or expired code }
+        "423": { description: Signup is temporarily locked }
+  /auth/signup/password:
+    post:
+      operationId: setSignupPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10 }
+      responses:
+        "201": { description: Student account created }
+  /auth/password/forgot:
+    post:
+      operationId: requestPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200": { description: Neutral reset-request response }
+  /auth/password/verify:
+    post:
+      operationId: verifyPasswordResetCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: "^[0-9]{6}$" }
+      responses:
+        "200": { description: Reset code verified }
+  /auth/password/reset:
+    post:
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, password]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: "^[0-9]{6}$" }
+                password: { type: string, minLength: 10 }
+      responses:
+        "200": { description: Password reset }
+  /auth/password/change:
+    post:
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, password]
+              properties:
+                current_password: { type: string }
+                password: { type: string, minLength: 10 }
+      responses:
+        "200": { description: Password changed }
+  /sessions/{id}/code:
+    get:
+      operationId: getSessionCode
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Current rotating code with server-adjusted countdown
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, seconds_remaining, server_time]
+                properties:
+                  code: { type: string }
+                  seconds_remaining: { type: integer }
+                  server_time: { type: string, format: date-time }
+  /sessions/{id}:
+    patch:
+      operationId: updateSession
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotating: { type: boolean }
+      responses:
+        "200":
+          description: Session settings updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code]
+                properties:
+                  code: { type: string }
+  /sessions/{id}/end:
+    post:
+      operationId: endSession
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Session ended }
+  /sessions/{id}/overrides:
+    post:
+      operationId: createAttendanceOverride
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_ids, status, reason]
+              properties:
+                student_ids:
+                  { type: array, items: { type: string }, minItems: 1 }
+                status:
+                  {
+                    type: string,
+                    enum:
+                      [
+                        verified,
+                        suspected_proxy,
+                        scan_only,
+                        absent,
+                        late,
+                        excused,
+                      ],
+                  }
+                reason:
+                  {
+                    type: string,
+                    enum:
+                      [
+                        power_outage,
+                        device_failure,
+                        official_duty,
+                        medical,
+                        other,
+                      ],
+                  }
+                reason_text: { type: string }
+      responses:
+        "200": { description: Attendance override recorded }
+  /sessions/{id}/overrides/bulk:
+    post:
+      operationId: createBulkAttendanceOverride
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_ids, status, reason]
+              properties:
+                student_ids:
+                  { type: array, items: { type: string }, minItems: 1 }
+                status:
+                  {
+                    type: string,
+                    enum:
+                      [
+                        verified,
+                        suspected_proxy,
+                        scan_only,
+                        absent,
+                        late,
+                        excused,
+                      ],
+                  }
+                reason:
+                  {
+                    type: string,
+                    enum:
+                      [
+                        power_outage,
+                        device_failure,
+                        official_duty,
+                        medical,
+                        other,
+                      ],
+                  }
+                reason_text: { type: string }
+      responses:
+        "200":
+          description: Per-student override results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [student_id, success]
+                      properties:
+                        student_id: { type: string }
+                        success: { type: boolean }
+                        message: { type: string }
+  /sessions/{id}/roster-sheet:
+    get:
+      operationId: getRosterSheet
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Roster rows used for paper attendance
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, matric_number]
+                  properties:
+                    name: { type: string }
+                    matric_number: { type: string }
+  /sessions/{id}/report.csv:
+    get:
+      operationId: downloadSessionReport
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Authenticated CSV report download
+          content:
+            text/csv:
+              schema: { type: string }
+  /check-ins:
+    post:
+      operationId: createCheckIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, code, lat, lng, accuracy, device_hash]
+              properties:
+                session_id: { type: string }
+                code: { type: string, pattern: "^[0-9]{6}$" }
+                lat: { type: number }
+                lng: { type: number }
+                accuracy: { type: number }
+                device_hash: { type: string }
+      responses:
+        "200":
+          description: Attendance successfully recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, late]
+                properties:
+                  status: { type: string }
+                  late: { type: boolean }
+                  distance_meters: { type: number }
+        "400": { description: Code, location, roster, or session error }
+        "429": { description: Rate limited; check Retry-After header }
