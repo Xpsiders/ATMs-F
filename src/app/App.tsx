@@ -36,6 +36,11 @@ const LecturerTeaching = lazy(() =>
     default: module.Teaching,
   })),
 );
+const LecturerStartSession = lazy(() =>
+  import("@/features/lecturer/pages").then((module) => ({
+    default: module.StartSession,
+  })),
+);
 const LecturerLiveSession = lazy(() =>
   import("@/features/lecturer/pages").then((module) => ({
     default: module.LiveSession,
@@ -177,7 +182,10 @@ export function App() {
   ];
   const isAuth = authPaths.includes(activePath);
   if (!authReady) return <Splash />;
-  if (activePath === "/login")
+  if (
+    activePath === "/login" ||
+    (mockMode && !getMockSession() && !isAuth)
+  )
     return (
       <Login
         onLogin={(accountRole = "student") => {
@@ -511,6 +519,10 @@ export function App() {
                 }
               />
               <Route path="/lecturer" element={<LecturerTeaching />} />
+              <Route
+                path="/lecturer/start"
+                element={<LecturerStartSession />}
+              />
               <Route path="/lecturer/live" element={<LecturerLiveSession />} />
               <Route path="/lecturer/report" element={<LecturerReport />} />
               <Route

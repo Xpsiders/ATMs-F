@@ -42,3 +42,9 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+
+export function formatApiError(error: unknown): string {
+  if (error instanceof ApiError) return `${error.code}: ${error.message}`;
+  if (error instanceof Error) return error.message;
+  return "Request failed. Please try again.";
+}

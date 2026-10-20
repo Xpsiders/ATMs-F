@@ -58,5 +58,10 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

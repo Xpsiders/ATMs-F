@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRequest } from "@/shared/lib/apiClient";
-import { ApiError, presentApiError } from "@/api/errors";
+import { ApiError, formatApiError } from "@/api/errors";
 import { getDeviceHash } from "@/shared/lib/deviceHash";
 import { formatTime } from "@/shared/lib/format";
 import { getCurrentPosition, GeoError } from "@/shared/lib/geo";
-import type { CheckInRequest, CheckInResponse } from "@/api/contracts";
+import type {
+  CheckInRequest,
+  CheckInResponse,
+  LiveClass,
+  LiveClassesResponse,
+} from "@/api/contracts";
 import { getMockSession, isMockMode } from "@/mocks/auth";
-import {
-  getDemoState,
-  recordDemoCheckIn,
-  updateDemoState,
-} from "@/mocks/store";
+import { updateDemoState } from "@/mocks/store";
 import { useDemoState } from "@/mocks/useDemoState";
 import {
   CHECKIN_ERRORS,
@@ -235,7 +236,10 @@ export function CheckIn({
   onResult: (message: string) => void;
   online: boolean;
 }) {
-  const demoState = useDemoState();
+  const [liveClasses, setLiveClasses] = useState<LiveClass[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [loadingLiveClasses, setLoadingLiveClasses] = useState(true);
+  const [liveClassesError, setLiveClassesError] = useState("");
   const [digits, setDigits] = useState("");
   const [status, setStatus] = useState<
     "idle" | "pending" | "success" | "error"
@@ -256,6 +260,29 @@ export function CheckIn({
   const [touchPointer, setTouchPointer] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  const selectedLiveClass = liveClasses.find(
+    (liveClass) => liveClass.session_id === selectedSessionId,
+  );
+  useEffect(() => {
+    let active = true;
+    setLoadingLiveClasses(true);
+    void apiRequest<LiveClassesResponse>("/me/live-classes")
+      .then((response) => {
+        if (!active) return;
+        setLiveClasses(response.items);
+        setSelectedSessionId(response.items[0]?.session_id ?? "");
+        setLiveClassesError("");
+      })
+      .catch((caught: unknown) => {
+        if (active) setLiveClassesError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setLoadingLiveClasses(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => {
     const media = window.matchMedia?.("(pointer: coarse)");
     if (!media) return;
@@ -322,49 +349,23 @@ export function CheckIn({
       return;
     setStatus("pending");
     try {
-      if (scenario && import.meta.env.DEV) {
+      if (scenario && isMockMode()) {
         await new Promise((resolve) => window.setTimeout(resolve, 300));
         throw new ApiError(400, scenario, scenario.replaceAll("_", " "));
       }
-      if (isMockMode()) {
-        await new Promise((resolve) => window.setTimeout(resolve, 300));
-        const session = demoState.sessions.find(
-          (candidate) => candidate.id === "demo-session",
-        );
-        if (!session || session.state !== "live")
-          throw new ApiError(400, "session_closed", "This session is closed.");
-        if (digits !== session.code)
-          throw new ApiError(400, "wrong_code", "The code did not match.");
-        if (!coordinates)
-          throw new Error("Share your location before checking in.");
-        const account = getMockSession();
-        const student = account
-          ? getDemoState().students.find(
-              (candidate) => candidate.name === account.name,
-            )
-          : undefined;
-        if (!student)
-          throw new Error("The demo student is missing from the roster.");
-        recordDemoCheckIn(student.id, "verified");
-        setCheckInResponse({
-          status: "verified",
-          late: false,
-          distance_meters: 24,
-        });
-        setStatus("success");
-        return;
-      }
+      if (!selectedLiveClass)
+        throw new Error("Choose a live class before checking in.");
       if (!coordinates)
         throw new Error("Share your location before checking in.");
       const payload: CheckInRequest = {
-        session_id: "demo-session",
+        session_id: selectedLiveClass.session_id,
         code: digits,
         lat: coordinates.lat,
         lng: coordinates.lng,
         accuracy: coordinates.accuracy,
         device_hash: getDeviceHash(),
       };
-      const result = await apiRequest<CheckInResponse>("/check-ins", {
+      const result = await apiRequest<CheckInResponse>("/checkins", {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -373,7 +374,7 @@ export function CheckIn({
     } catch (caught) {
       if (caught instanceof ApiError) {
         setErrorCode(caught.code);
-        setError(presentApiError(caught.code, caught.message).message);
+        setError(formatApiError(caught));
         if (caught.status === 429 && caught.retryAfter)
           setCooldown(caught.retryAfter);
         if (caught.code === "device_not_bound") setDeviceApproval(true);
@@ -406,12 +407,19 @@ export function CheckIn({
               </div>
               <span className="eyebrow">ATTENDANCE RECORDED</span>
               <h2>You're checked in, Amara!</h2>
-              <p>Your attendance for {LIVE_CLASS.title} has been saved.</p>
+              <p>
+                Your attendance for{" "}
+                {selectedLiveClass?.course_title ?? "your live class"} has been
+                saved.
+              </p>
               <div className="result-detail">
                 <span>
-                  {LIVE_CLASS.code} · Today at {formatTime(new Date())}
+                  {selectedLiveClass?.course_code} · Today at{" "}
+                  {formatTime(new Date())}
                 </span>
-                <b>Verified · {checkInResponse?.late ? "Late" : "On time"}</b>
+                <b>
+                  {checkInResponse?.status === "late" ? "Late" : "On time"}
+                </b>
               </div>
               {typeof checkInResponse?.distance_meters === "number" && (
                 <p>
@@ -501,25 +509,54 @@ export function CheckIn({
               <label className="field-label" htmlFor="live-class">
                 Live class
               </label>
-              <select id="live-class" className="field-control class-select">
-                <option>
-                  {LIVE_CLASS.title} · {LIVE_CLASS.code}
-                </option>
+              <select
+                id="live-class"
+                className="field-control class-select"
+                value={selectedSessionId}
+                disabled={loadingLiveClasses || liveClasses.length === 0}
+                onChange={(event) => setSelectedSessionId(event.target.value)}
+              >
+                {liveClasses.map((liveClass) => (
+                  <option
+                    key={liveClass.session_id}
+                    value={liveClass.session_id}
+                    disabled={liveClass.already_checked_in}
+                  >
+                    {liveClass.course_title} · {liveClass.course_code}
+                    {liveClass.already_checked_in ? " · Checked in" : ""}
+                  </option>
+                ))}
               </select>
-              <div className="class-context">
+              {loadingLiveClasses && (
+                <p role="status">Loading live classes…</p>
+              )}
+              {liveClassesError && (
+                <div className="form-error" role="alert">
+                  {liveClassesError}
+                </div>
+              )}
+              {!loadingLiveClasses &&
+                !liveClassesError &&
+                liveClasses.length === 0 && (
+                  <p role="status">
+                    There are no live classes available right now.
+                  </p>
+                )}
+              {selectedLiveClass && <div className="class-context">
                 <span className="class-context-icon">
                   <Icon name="book" />
                 </span>
                 <div>
-                  <b>{LIVE_CLASS.title}</b>
+                  <b>{selectedLiveClass.course_title}</b>
                   <span>
-                    {LIVE_CLASS.code} <i>·</i> {LIVE_CLASS.room}
+                    {selectedLiveClass.course_code} <i>·</i>{" "}
+                    {selectedLiveClass.venue_name}
                   </span>
                 </div>
                 <span className="live-badge">
                   <span /> IN SESSION
                 </span>
-              </div>
+              </div>}
               <div className="section-title code-title">
                 <span className="step-number">02</span>
                 <div>
@@ -654,6 +691,8 @@ export function CheckIn({
                     digits.length !== 6 ||
                     status === "pending" ||
                     !online ||
+                    !selectedLiveClass ||
+                    selectedLiveClass.already_checked_in ||
                     cooldown > 0
                   }
                 >
@@ -668,7 +707,7 @@ export function CheckIn({
                   One tap is all it takes <span className="tiny-shield">✳</span>
                 </span>
               </div>
-              {import.meta.env.DEV && (
+              {isMockMode() && (
                 <details className="scenario-picker">
                   <summary>Developer: check-in scenario</summary>
                   <select
@@ -693,8 +732,12 @@ export function CheckIn({
             <div className="aside-overline">
               <span className="live-dot" /> LIVE CLASS
             </div>
-            <h2>{LIVE_CLASS.title}</h2>
-            <span className="class-course-code">{LIVE_CLASS.code}</span>
+            <h2>{selectedLiveClass?.course_title ?? "No live class selected"}</h2>
+            {selectedLiveClass && (
+              <span className="class-course-code">
+                {selectedLiveClass.course_code}
+              </span>
+            )}
             <div className="aside-divider" />
             <div className="class-detail">
               <Icon name="clock" size={17} />
@@ -705,7 +748,7 @@ export function CheckIn({
             <div className="class-detail">
               <Icon name="pin" size={17} />
               <span>
-                Engineering Building<small>Lecture Theatre 2</small>
+                {selectedLiveClass?.venue_name ?? "Venue unavailable"}
               </span>
             </div>
             <div className="aside-count">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { API_ERRORS, presentApiError } from "./errors";
+import { API_ERRORS, ApiError, formatApiError, presentApiError } from "./errors";
 
 describe("API error presentation", () => {
   it("has a friendly presentation for every known error code", () => {
@@ -17,5 +17,11 @@ describe("API error presentation", () => {
   it("uses the server message for unknown codes, then a generic message", () => {
     expect(presentApiError("new_backend_code", "Please wait").message).toBe("Please wait");
     expect(presentApiError("new_backend_code", " ").message).toContain("Please try again");
+  });
+
+  it("preserves the server error code and message for request feedback", () => {
+    expect(
+      formatApiError(new ApiError(409, "venue_busy", "Venue is in use")),
+    ).toBe("venue_busy: Venue is in use");
   });
 });

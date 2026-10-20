@@ -1,34 +1,43 @@
-import type { operations } from "./schema";
+import type { components, operations } from "./schema";
 
 export type SessionCodeResponse =
   operations["getSessionCode"]["responses"][200]["content"]["application/json"];
+export type LiveClassesResponse =
+  operations["getMyLiveClasses"]["responses"][200]["content"]["application/json"];
+export type LiveClass = components["schemas"]["LiveClass"];
+export type VenueListResponse =
+  operations["listVenues"]["responses"][200]["content"]["application/json"];
+export type Venue = components["schemas"]["Venue"];
+export type OfferingsResponse =
+  operations["listOfferings"]["responses"][200]["content"]["application/json"];
+export type StartSessionRequest =
+  operations["startSession"]["requestBody"]["content"]["application/json"];
+export type StartSessionResponse =
+  operations["startSession"]["responses"][201]["content"]["application/json"];
+export type EndSessionResponse =
+  operations["endSession"]["responses"][200]["content"]["application/json"];
 export type LoginResponse =
   operations["login"]["responses"][200]["content"]["application/json"];
 export type CheckInRequest =
-  operations["createCheckIn"]["requestBody"]["content"]["application/json"];
+  operations["createWebCheckin"]["requestBody"]["content"]["application/json"];
 export type CheckInResponse =
-  operations["createCheckIn"]["responses"][200]["content"]["application/json"];
-export type RosterSheetRow =
-  operations["getRosterSheet"]["responses"][200]["content"]["application/json"][number];
+  operations["createWebCheckin"]["responses"][201]["content"]["application/json"];
+export type RosterPage =
+  operations["getSessionRosterSheet"]["responses"][200]["content"]["application/json"];
+export type RosterSheetRow = components["schemas"]["RosterPage"]["items"][number];
 export type SessionPatchResponse =
-  operations["updateSession"]["responses"][200]["content"]["application/json"];
+  operations["convertSessionToFixedCode"]["responses"][200]["content"]["application/json"];
 export type AttendanceOverrideRequest =
-  operations["createAttendanceOverride"]["requestBody"]["content"]["application/json"];
+  components["schemas"]["BulkOverrideRequest"];
 export type BulkOverrideResponse =
-  operations["createBulkAttendanceOverride"]["responses"][200]["content"]["application/json"];
+  operations["createBulkAttendanceOverrides"]["responses"][200]["content"]["application/json"];
 export type SignupClaimRequest =
-  operations["claimSignup"]["requestBody"]["content"]["application/json"];
+  operations["startStudentClaim"]["requestBody"]["content"]["application/json"];
 export type SignupVerifyRequest =
-  operations["verifySignupCode"]["requestBody"]["content"]["application/json"];
-export type SignupPasswordRequest =
-  operations["setSignupPassword"]["requestBody"]["content"]["application/json"];
-export type ForgotPasswordRequest =
-  operations["requestPasswordReset"]["requestBody"]["content"]["application/json"];
-export type ResetPasswordRequest =
-  operations["resetPassword"]["requestBody"]["content"]["application/json"];
+  operations["verifyStudentEmail"]["requestBody"]["content"]["application/json"];
 export type ChangePasswordRequest =
   operations["changePassword"]["requestBody"]["content"]["application/json"];
-export type PasswordCodeRequest =
-  operations["verifyPasswordResetCode"]["requestBody"]["content"]["application/json"];
 export type SessionPatchRequest =
-  operations["updateSession"]["requestBody"]["content"]["application/json"];
+  operations["convertSessionToFixedCode"]["requestBody"]["content"]["application/json"];
+export type LoginRequest =
+  operations["login"]["requestBody"]["content"]["application/json"];

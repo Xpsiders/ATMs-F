@@ -1,31 +1,68 @@
-# API assumptions to confirm
+# API contract notes
 
-The backend is being developed independently. This file records only guesses required to wire the UI; confirm these names and shapes against the final OpenAPI document.
+`api/openapi.yaml` is currently synced from the sibling backend repository. The
+generated types in `src/api/schema.d.ts` are the source of truth for API
+operations and payloads; frontend aliases are maintained in
+`src/api/contracts.ts`.
 
-| Endpoint                             | Assumption used by UI                                                                                                  |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/refresh`                 | Refresh cookie is sent with credentials; success JSON contains `access_token`.                                         |
-| `POST /auth/login`                   | JSON body is `{ email, password }`; access token is held in memory.                                                    |
-| `POST /auth/signup/claim`            | JSON body is `{ matric, email }`; response is neutral whether or not the record matches.                               |
-| `POST /auth/signup/verify`           | JSON body is `{ email, code }`; `code` is six digits.                                                                  |
-| `POST /auth/signup/password`         | JSON body is `{ email, password }`; password must be at least 10 characters.                                           |
-| `POST /auth/password/forgot`         | JSON body is `{ email }`; response is neutral to avoid account enumeration.                                            |
-| `POST /auth/password/verify`         | JSON body is `{ email, code }`; `code` is six digits.                                                                  |
-| `POST /auth/password/reset`          | JSON body is `{ email, code, password }`; password must be at least 10 characters.                                     |
-| `POST /auth/password/change`         | JSON body is `{ current_password, password }`; new password must be at least 10 characters.                            |
-| `GET /sessions/{id}/code`            | Returns `{ code, seconds_remaining, server_time }`; the server, not browser clock, controls rotation.                  |
-| `POST /check-ins`                    | Body contains `session_id`, six-digit `code`, `lat`, `lng`, `accuracy`, and `device_hash`; success can include `late`. |
-| `PATCH /sessions/{id}`               | `{ rotating: false }` switches the session once to a fixed code; success returns the fixed `code`.                     |
-| `POST /sessions/{id}/end`            | Confirms ending an active session.                                                                                     |
-| `POST /sessions/{id}/overrides`      | Records one audited status override.                                                                                   |
-| `POST /sessions/{id}/overrides/bulk` | Receives selected student IDs, status and reason; records results per student.                                         |
-| `GET /sessions/{id}/roster-sheet`    | Returns an array of `{ name, matric_number }` for the print-friendly roster.                                           |
-| `GET /sessions/{id}/report.csv`      | Returns an authenticated `text/csv` download.                                                                          |
-| Error envelope                       | Non-success response is `{ error: { code, message, details } }`; `Retry-After` may be seconds or an HTTP date.         |
+## Confirmed contract details used by the UI
 
-The login response is assumed to contain only `access_token`; user identity and role resolution are not yet wired to a backend response.
-Check-in success is assumed to contain `status`, `late`, and optionally `distance_meters`. Bulk override results are assumed to contain one `{ student_id, success, message? }` per student. Error `details` are not interpreted by the UI.
+| Operation | Contract shape relied on by the frontend |
+| --- | --- |
+| `POST /auth/login` | Requires `institution_id`, `email`, and `password`; returns the access token and user profile/roles. The access token stays in memory. |
+| `POST /auth/refresh` | Uses the refresh cookie (`credentials: "include"`); returns an access token or 401. |
+| `POST /auth/signup-claim` | Requires `institution_id`, `matric_no`, and `email`; returns an enumeration-safe 202 acknowledgement. |
+| `POST /auth/verify-email` | Requires `institution_id`, `matric_no`, six-digit `code`, and `password`; returns a token response. |
+| `POST /auth/password/change` | Requires `current_password` and `new_password`. |
+| `POST /checkins` | Requires session ID, six-digit code, coordinates, and accuracy; returns `present` or `late`, roster/accuracy flags, and distance. |
+| `POST /sessions` | Requires offering/venue IDs and `rotating_code`; returns the session and code response. |
+| `GET /sessions/{id}/code` | Returns `session`, `code`, and server-authoritative `seconds_remaining`. |
+| `PATCH /sessions/{id}` | `{ rotating: false }` converts once to fixed code; response is the session code response. |
+| `POST /sessions/{id}/end` | Ends a session and returns the session. |
+| `GET /sessions/{id}/report?format=csv` | Returns report JSON or `text/csv`. |
+| `GET /sessions/{id}/roster-sheet` | Returns a paginated `RosterPage` (`items` with `display_name` and `matric_no`) or CSV. |
+| `POST /sessions/{id}/overrides/bulk` | Requires student IDs, status (`present`, `absent`, `late`, `excused`), reason code, and optional note; results use `applied` and optional `error_code`. |
 
-Error identifiers currently recognized centrally in `src/api/errors.ts`: `wrong_code`, `code_expired`, `session_closed`, `outside_radius`, `not_on_roster`, `already_checked_in`, `accuracy_too_poor`, `too_many_attempts`, `device_not_bound`, `code_locked`, `account_temporarily_locked`, `token_reuse_detected`, `lecturer_has_open_session`, `venue_has_open_session`, `no_active_session`, `device_key_revoked`, and `rate_limited`.
+`VITE_INSTITUTION_ID` must be set to the institution UUID for real login and
+student-claim requests. The repository does not provide an institution-specific
+default.
 
-Every other endpoint, field, and final error-code spelling must be updated from the real spec when it arrives. Use `pnpm run sync:api` (`API_SPEC_PATH` can override the default source path); run `pnpm run typecheck` immediately afterward to surface drift.
+## Locally drafted operations
+
+The sibling backend OpenAPI did not define these two operations when the
+session-ID flows were connected. They are marked `x-draft: true` in
+`api/openapi.yaml` and must be confirmed by the backend owner:
+
+| Operation | Draft response fields relied on by the UI |
+| --- | --- |
+| `GET /me/live-classes` | `{ items: LiveClass[] }`; each item has `session_id`, `offering_id`, `course_code`, `course_title`, `venue_id`, `venue_name`, `lecturer_name`, `started_at`, `late_after_min`, `rotating_code`, and `already_checked_in`. |
+| `GET /venues` | `{ items: Venue[], total }`; each venue has `id`, `name`, `latitude`, `longitude`, and `radius_m`. |
+
+`GET /offerings` is present in the synced contract. The frontend relies only on
+each item's `id`; display labels use the generated `Offering {id}` fallback
+because the contract does not guarantee course title/code fields on this list.
+`POST /sessions` accepts the selected offering and venue IDs plus session
+options, and the frontend relies on the response's `session.id` as the
+authoritative ID for code polling and ending that session. The mock store adds
+richer demo descriptions separately.
+
+## Operations not present in the synced contract
+
+The current OpenAPI does not define forgot-password, reset-password, standalone
+signup-code verification, signup-password, or single-student override
+operations. In real-API mode the corresponding unsupported auth flows report
+that the current contract does not support them; the lecturer uses the defined
+bulk override endpoint for one or more selected students. Do not add guessed
+routes or payload fields without a backend contract update.
+
+Session creation now uses `POST /sessions` and propagates its returned ID to
+code polling, session ending, report links, and print-sheet requests. Student
+check-in loads `GET /me/live-classes` and submits the selected class's returned
+session ID. Mock sessions use generated UUIDs; no attendance-session ID is
+hardcoded. Live/report summary numbers and mock report rows remain seeded. The
+two locally drafted operations have not been validated against a running
+backend; the backend was unavailable during the implementation and both
+operations must be confirmed by its owner before real-API use.
+
+All API error responses use the contract's `ErrorEnvelope`. `Retry-After` is
+parsed as either seconds or an HTTP date by the shared API client.

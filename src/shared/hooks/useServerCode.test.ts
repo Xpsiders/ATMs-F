@@ -28,7 +28,10 @@ describe("server code countdown", () => {
         server_time: "2026-10-20T12:00:30Z",
       });
     const { result } = renderHook(() => useServerCode("session-1"));
-    await act(async () => {});
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(result.current.code).toBe("381204");
     expect(result.current.seconds).toBe(30);
     await act(async () => {
@@ -51,10 +54,19 @@ describe("server code countdown", () => {
     const previous = document.visibilityState;
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
-      value: "hidden",
+      value: "visible",
     });
     const { result, unmount } = renderHook(() => useServerCode("session-1"));
-    await act(async () => {});
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.seconds).toBe(30);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });

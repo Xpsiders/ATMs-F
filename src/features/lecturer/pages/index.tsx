@@ -1,30 +1,35 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, downloadApiFile } from "@/shared/lib/apiClient";
 import { useServerCode } from "@/shared/hooks/useServerCode";
 import { requestScreenWakeLock } from "@/shared/lib/wakeLock";
 import { formatInitials } from "@/shared/lib/format";
+import { formatApiError } from "@/api/errors";
 import type {
   AttendanceOverrideRequest,
   BulkOverrideResponse,
+  EndSessionResponse,
+  OfferingsResponse,
+  RosterPage,
   RosterSheetRow,
+  StartSessionRequest,
+  StartSessionResponse,
   SessionPatchRequest,
   SessionPatchResponse,
+  VenueListResponse,
 } from "@/api/contracts";
 import {
   Icon,
   isOverrideReason,
   isOverrideStatus,
-  LIVE_CLASS,
   PageHeading,
 } from "@/shared/ui/primitives";
 import {
   overrideDemoAttendance,
   setDemoScannerStatus,
-  setDemoSessionFixedCode,
-  updateDemoState,
   type DemoAttendance,
 } from "@/mocks/store";
+import { isMockMode } from "@/mocks/auth";
 import { useDemoState } from "@/mocks/useDemoState";
 
 const ATTENDANCE_STATUS_LABELS: Record<DemoAttendance["status"], string> = {
@@ -44,7 +49,7 @@ export function Teaching() {
         title="Good morning, Dr. Eze"
         subtitle="Your classes are ready. Start a session when your students arrive."
         action={
-          <Link to="/lecturer/live" className="button primary-button">
+          <Link to="/lecturer/start" className="button primary-button">
             <Icon name="calendar" /> Start a session
           </Link>
         }
@@ -77,8 +82,8 @@ export function Teaching() {
                 }
               </span>
             </div>
-            <Link to="/lecturer/live" className="text-button">
-              {i === 0 ? "View live session" : "Start session"}{" "}
+            <Link to="/lecturer/start" className="text-button">
+              Start session{" "}
               <Icon name="arrow" size={15} />
             </Link>
           </div>
@@ -88,14 +93,185 @@ export function Teaching() {
   );
 }
 
+export function StartSession() {
+  const navigate = useNavigate();
+  const [offerings, setOfferings] =
+    useState<OfferingsResponse["items"]>([]);
+  const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
+  const [offeringId, setOfferingId] = useState("");
+  const [venueId, setVenueId] = useState("");
+  const [rotatingCode, setRotatingCode] = useState(true);
+  const [lateAfterMin, setLateAfterMin] = useState(10);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void Promise.all([
+      apiRequest<OfferingsResponse>("/offerings?limit=200&offset=0"),
+      apiRequest<VenueListResponse>("/venues"),
+    ])
+      .then(([offeringResponse, venueResponse]) => {
+        if (!active) return;
+        setOfferings(offeringResponse.items);
+        setVenues(venueResponse.items);
+        setOfferingId(offeringResponse.items[0]?.id ?? "");
+        setVenueId(
+          venueResponse.items[1]?.id ?? venueResponse.items[0]?.id ?? "",
+        );
+      })
+      .catch((caught: unknown) => {
+        if (active) setError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function startSession(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const venue = venues.find((item) => item.id === venueId);
+    if (!offeringId || !venue) {
+      setError("Choose an offering and venue before starting the session.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const payload: StartSessionRequest = {
+      offering_id: offeringId,
+      venue_id: venue.id,
+      rotating_code: rotatingCode,
+      late_after_min: lateAfterMin,
+      latitude: venue.latitude,
+      longitude: venue.longitude,
+      radius_meters: venue.radius_m,
+    };
+    try {
+      const result = await apiRequest<StartSessionResponse>("/sessions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      navigate(`/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`);
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="LECTURER WORKSPACE"
+        title="Start an attendance session"
+        subtitle="Choose an offering, venue and attendance options."
+      />
+      <form className="panel start-session-form" onSubmit={startSession}>
+        {error && (
+          <div className="form-error" role="alert">
+            {error}
+          </div>
+        )}
+        {loading ? (
+          <p role="status">Loading offerings and venues…</p>
+        ) : (
+          <>
+            <label className="field-label" htmlFor="session-offering">
+              Offering
+            </label>
+            <select
+              id="session-offering"
+              className="field-control"
+              value={offeringId}
+              onChange={(event) => setOfferingId(event.target.value)}
+              required
+              disabled={!offerings.length}
+            >
+              {offerings.map((offering) => (
+                <option key={offering.id} value={offering.id}>
+                  Offering {offering.id}
+                </option>
+              ))}
+            </select>
+            {!offerings.length && (
+              <p role="status">No offerings are available to you.</p>
+            )}
+            <label className="field-label" htmlFor="session-venue">
+              Venue
+            </label>
+            <select
+              id="session-venue"
+              className="field-control"
+              value={venueId}
+              onChange={(event) => setVenueId(event.target.value)}
+              required
+              disabled={!venues.length}
+            >
+              {venues.map((venue) => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.name}
+                </option>
+              ))}
+            </select>
+            {!venues.length && (
+              <p role="status">No venues are available to you.</p>
+            )}
+            <label className="field-label" htmlFor="late-after-min">
+              Mark late after (minutes)
+            </label>
+            <input
+              id="late-after-min"
+              className="field-control"
+              type="number"
+              min={0}
+              max={240}
+              value={lateAfterMin}
+              onChange={(event) => setLateAfterMin(Number(event.target.value))}
+              required
+            />
+            <label className="session-option">
+              <input
+                type="checkbox"
+                checked={rotatingCode}
+                onChange={(event) => setRotatingCode(event.target.checked)}
+              />
+              Use rotating attendance code
+            </label>
+            <button
+              className="button primary-button"
+              type="submit"
+              disabled={saving || !offeringId || !venueId}
+            >
+              {saving ? "Starting session…" : "Start session"}
+            </button>
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
 export function LiveSession() {
-  const mock =
-    import.meta.env.DEV &&
-    (import.meta.env.MODE === "mock" ||
-      import.meta.env.VITE_USE_MOCKS === "true");
+  const mock = isMockMode();
   const demoState = useDemoState();
+  const [searchParams] = useSearchParams();
+  const requestedSessionId = searchParams.get("sessionId");
+  const sessionId =
+    requestedSessionId ??
+    (mock
+      ? (demoState.sessions.find((session) => session.state === "live")?.id ??
+        "")
+      : "");
   const demoSession = demoState.sessions.find(
-    (session) => session.id === "demo-session",
+    (session) => session.id === sessionId,
+  );
+  const demoOffering = demoState.offerings.find(
+    (offering) => offering.id === demoSession?.offeringId,
   );
   const [projector, setProjector] = useState(false);
   const [boardMode, setBoardMode] = useState(false);
@@ -117,8 +293,13 @@ export function LiveSession() {
     seconds,
     error: codeError,
   } = useServerCode(
-    "demo-session",
-    !fixedCode && (!mock || demoSession?.rotating !== false),
+    sessionId,
+    Boolean(
+      sessionId &&
+        !ended &&
+        !fixedCode &&
+        (!mock || demoSession?.rotating !== false),
+    ),
   );
   const activeCode = fixedCode ?? code;
   const rosterRows = demoState.attendance.flatMap((record) => {
@@ -159,6 +340,7 @@ export function LiveSession() {
     };
   }, [boardMode]);
   async function switchToFixedCode() {
+    if (!sessionId) return;
     if (
       !window.confirm(
         "Switch permanently to a fixed check-in code? Rotating codes cannot be restored for this session.",
@@ -167,23 +349,22 @@ export function LiveSession() {
       return;
     try {
       const patch: SessionPatchRequest = { rotating: false };
-      const fixed = mock
-        ? { code }
-        : await apiRequest<SessionPatchResponse>("/sessions/demo-session", {
-            method: "PATCH",
-            body: JSON.stringify(patch),
-          });
+      const fixed = await apiRequest<SessionPatchResponse>(
+        `/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        },
+      );
       if (typeof fixed.code !== "string" || !fixed.code)
         throw new Error("The API did not return a fixed session code.");
       setLocalFixedCode(fixed.code);
-      if (mock) setDemoSessionFixedCode(fixed.code);
-    } catch {
-      setNotice(
-        "The session could not be switched to fixed code. Please try again.",
-      );
+    } catch (caught) {
+      setNotice(formatApiError(caught));
     }
   }
   async function endSession() {
+    if (!sessionId) return;
     if (
       !window.confirm(
         "End this attendance session? Students will no longer be able to check in.",
@@ -191,22 +372,15 @@ export function LiveSession() {
     )
       return;
     try {
-      if (!mock)
-        await apiRequest<unknown>("/sessions/demo-session/end", {
+      await apiRequest<EndSessionResponse>(
+        `/sessions/${encodeURIComponent(sessionId)}/end`,
+        {
           method: "POST",
-        });
+        },
+      );
       setLocalEnded(true);
-      if (mock)
-        updateDemoState((current) => ({
-          ...current,
-          sessions: current.sessions.map((session) =>
-            session.id === "demo-session"
-              ? { ...session, state: "ended" }
-              : session,
-          ),
-        }));
-    } catch {
-      setNotice("The session could not be ended. Please try again.");
+    } catch (caught) {
+      setNotice(formatApiError(caught));
     }
   }
   function enterBoardMode() {
@@ -244,12 +418,8 @@ export function LiveSession() {
         </button>{" "}
         <div className="board-content">
           <span className="board-kicker">CAMPUSCHECK · LIVE CLASS CODE</span>
-          <h1>
-            {LIVE_CLASS.title} · {LIVE_CLASS.code}
-          </h1>
-          <p className="board-venue">
-            Engineering Building · Lecture Theatre 2
-          </p>
+          <h1>{demoOffering?.title ?? "Live attendance session"}</h1>
+          <p className="board-venue">{demoSession?.venue ?? "Session venue"}</p>
           <strong className="board-code">
             {`${activeCode.slice(0, 3)} ${activeCode.slice(3)}`}
           </strong>
@@ -270,14 +440,29 @@ export function LiveSession() {
         </div>
       </section>
     );
+  if (!sessionId)
+    return (
+      <div className="page-stack">
+        <PageHeading
+          eyebrow="LECTURER WORKSPACE"
+          title="No session selected"
+          subtitle="Start a session or open a live session to display its attendance code."
+          action={
+            <Link to="/lecturer/start" className="button primary-button">
+              Start a session
+            </Link>
+          }
+        />
+      </div>
+    );
   return (
     <div
       className={`page-stack ${projector ? `projector-mode ${boardTheme}` : ""}`}
     >
       <PageHeading
-        eyebrow={`LIVE SESSION · ${LIVE_CLASS.code}`}
-        title={LIVE_CLASS.title}
-        subtitle="Engineering Building · Lecture Theatre 2"
+        eyebrow={`LIVE SESSION · ${demoOffering?.code ?? "ATTENDANCE"}`}
+        title={demoOffering?.title ?? "Live attendance session"}
+        subtitle={demoSession?.venue ?? "Session venue"}
         action={
           <div className="live-actions">
             <button
@@ -400,7 +585,7 @@ export function LiveSession() {
             <i />
             Lecture Theatre 2 · {scannerOffline ? "Offline" : "Online"}
           </span>
-          {import.meta.env.DEV && (
+          {isMockMode() && (
             <select
               className="filter-select"
               aria-label="Mock live screen scenario"
@@ -434,7 +619,10 @@ export function LiveSession() {
             <h2>Live roster</h2>
             <p>Attendance updates as students check in</p>
           </div>
-          <Link to="/lecturer/report" className="text-button">
+          <Link
+            to={`/lecturer/report?sessionId=${encodeURIComponent(sessionId)}`}
+            className="text-button"
+          >
             View full roster <Icon name="arrow" size={15} />
           </Link>
         </div>
@@ -459,24 +647,28 @@ export function LiveSession() {
 
 export function Report() {
   const demoState = useDemoState();
+  const [searchParams] = useSearchParams();
   const [filter, setFilter] = useState("All statuses");
   const [department, setDepartment] = useState("All departments");
   const [selected, setSelected] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [reasonType, setReasonType] =
-    useState<AttendanceOverrideRequest["reason"]>("power_outage");
+    useState<AttendanceOverrideRequest["reason_code"]>("power_outage");
   const [reason, setReason] = useState("");
   const [newStatus, setNewStatus] =
-    useState<AttendanceOverrideRequest["status"]>("verified");
+    useState<AttendanceOverrideRequest["status"]>("present");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [localScannerOffline, setLocalScannerOffline] = useState(false);
   const [message, setMessage] = useState("");
-  const mock =
-    import.meta.env.DEV &&
-    (import.meta.env.MODE === "mock" ||
-      import.meta.env.VITE_USE_MOCKS === "true");
+  const mock = isMockMode();
+  const sessionId =
+    searchParams.get("sessionId") ??
+    (mock
+      ? (demoState.sessions.find((session) => session.state === "live")?.id ??
+        "")
+      : "");
   const scannerOffline = mock
     ? demoState.scanners.some((scanner) => scanner.status === "offline")
     : localScannerOffline;
@@ -508,9 +700,10 @@ export function Report() {
     setExporting(true);
     setMessage("");
     try {
+      if (!sessionId) throw new Error("Open a session report from a session.");
       if (!mock)
         await downloadApiFile(
-          "/sessions/demo-session/report.csv",
+          `/sessions/${encodeURIComponent(sessionId)}/report?format=csv`,
           "ENG-301-session-report.csv",
         );
       else
@@ -525,50 +718,47 @@ export function Report() {
   }
   async function submitOverride() {
     if (saving || (reasonType === "other" && !reason.trim())) return;
+    if (!sessionId) {
+      setMessage("Open a session report from a session before overriding records.");
+      return;
+    }
     setSaving(true);
     setMessage("");
     try {
       const payload: AttendanceOverrideRequest = {
-        student_ids: selectedIds.length > 1 ? selectedIds : [selected],
+        student_ids: selectedIds.length ? selectedIds : [selected],
         status: newStatus,
-        reason: reasonType,
-        reason_text: reasonType === "other" ? reason : undefined,
+        reason_code: reasonType,
+        note: reasonType === "other" ? reason : undefined,
       };
-      if (selectedIds.length > 1) {
-        const results = mock
-          ? {
-              results: selectedIds.map((studentId) => ({
-                student_id: studentId,
-                success: true,
-              })),
-            }
-          : await apiRequest<BulkOverrideResponse>(
-              "/sessions/demo-session/overrides/bulk",
-              {
-                method: "POST",
-                body: JSON.stringify(payload),
-              },
-            );
-        setMessage(
-          results.results
-            .map(
-              (result) =>
-                `${result.student_id}: ${result.success ? "saved" : "not saved"}`,
-            )
-            .join(" · "),
-        );
-      } else {
-        if (!mock)
-          await apiRequest<unknown>("/sessions/demo-session/overrides", {
+      const results = mock
+        ? {
+            results: payload.student_ids.map((studentId) => ({
+              student_id: studentId,
+              applied: true,
+              error_code: undefined,
+            })),
+          }
+        : await apiRequest<BulkOverrideResponse>(
+            `/sessions/${encodeURIComponent(sessionId)}/overrides/bulk`,
+            {
             method: "POST",
             body: JSON.stringify(payload),
-          });
-        setMessage("The record was saved and added to the audit trail.");
-      }
+            },
+          );
+      setMessage(
+        results.results
+          .map(
+            (result) =>
+              `${result.student_id}: ${result.applied ? "saved" : `not saved${result.error_code ? ` (${result.error_code})` : ""}`}`,
+          )
+          .join(" · "),
+      );
       if (mock)
         overrideDemoAttendance(
+          sessionId,
           payload.student_ids,
-          payload.status,
+          payload.status === "present" ? "verified" : payload.status,
           reasonType === "other" ? reason : reasonType,
         );
       setSelected("");
@@ -590,7 +780,7 @@ export function Report() {
         action={
           <div className="report-actions">
             <Link
-              to="/lecturer/print-sheet"
+              to={`/lecturer/print-sheet?sessionId=${encodeURIComponent(sessionId)}`}
               className="button secondary-button"
             >
               Print attendance sheet
@@ -651,7 +841,7 @@ export function Report() {
             <p>API-classified results · 184 students on this roster</p>
           </div>
           <div className="report-filters">
-            {import.meta.env.DEV && (
+            {isMockMode() && (
               <select
                 className="filter-select"
                 aria-label="Mock report scanner scenario"
@@ -896,9 +1086,7 @@ export function Report() {
                 if (isOverrideStatus(value)) setNewStatus(value);
               }}
             >
-              <option value="verified">Verified</option>
-              <option value="suspected_proxy">Suspected proxy</option>
-              <option value="scan_only">Scan only</option>
+              <option value="present">Present</option>
               <option value="absent">Absent</option>
               <option value="late">Late</option>
               <option value="excused">Excused</option>
@@ -962,24 +1150,37 @@ export function Report() {
 
 export function PrintSheet() {
   const demoState = useDemoState();
-  const mock =
-    import.meta.env.DEV &&
-    (import.meta.env.MODE === "mock" ||
-      import.meta.env.VITE_USE_MOCKS === "true");
+  const [searchParams] = useSearchParams();
+  const mock = isMockMode();
+  const sessionId =
+    searchParams.get("sessionId") ??
+    (mock
+      ? (demoState.sessions.find((session) => session.state === "live")?.id ??
+        "")
+      : "");
   const [apiRows, setApiRows] = useState<RosterSheetRow[]>([]);
   const [error, setError] = useState("");
   const rows = mock
     ? demoState.students.map((student) => ({
-        name: student.name,
-        matric_number: student.matric,
+        display_name: student.name,
+        matric_no: student.matric,
       }))
-    : apiRows;
+    : apiRows.map((row) => ({
+        display_name: row.display_name,
+        matric_no: row.matric_no,
+      }));
   useEffect(() => {
     if (mock) return;
+    if (!sessionId) {
+      setError("Open the print sheet from a session.");
+      return;
+    }
     let cancelled = false;
-    void apiRequest<RosterSheetRow[]>("/sessions/demo-session/roster-sheet")
+    void apiRequest<RosterPage>(
+      `/sessions/${encodeURIComponent(sessionId)}/roster-sheet`,
+    )
       .then((result) => {
-        if (!cancelled) setApiRows(result);
+        if (!cancelled) setApiRows(result.items);
       })
       .catch(() => {
         if (!cancelled)
@@ -988,7 +1189,7 @@ export function PrintSheet() {
     return () => {
       cancelled = true;
     };
-  }, [mock]);
+  }, [mock, sessionId]);
   return (
     <div className="page-stack">
       <PageHeading
@@ -1025,9 +1226,9 @@ export function PrintSheet() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.matric_number}>
-                <td>{row.name}</td>
-                <td>{row.matric_number}</td>
+              <tr key={row.matric_no}>
+                <td>{row.display_name}</td>
+                <td>{row.matric_no}</td>
                 <td />
               </tr>
             ))}

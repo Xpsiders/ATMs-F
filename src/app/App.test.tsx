@@ -14,7 +14,11 @@ import {
   getMockSession,
   startMockSession,
 } from "@/mocks/auth";
-import { getDemoState, resetDemoData } from "@/mocks/store";
+import {
+  getDemoState,
+  resetDemoData,
+  updateDemoState,
+} from "@/mocks/store";
 
 vi.mock("@/shared/lib/geo", () => ({
   getCurrentPosition: vi
@@ -49,6 +53,25 @@ function renderApp(path = "/", withMockSession = true) {
   );
 }
 
+function clearAmaraCheckIn() {
+  updateDemoState((current) => ({
+    ...current,
+    attendance: current.attendance.map((record) =>
+      record.studentId === "2021-18420"
+        ? { ...record, webTime: "—", status: "absent" }
+        : record,
+    ),
+  }));
+}
+
+function demoSessionPath(path: string) {
+  const session = getDemoState().sessions.find(
+    (candidate) => candidate.state === "live",
+  );
+  if (!session) throw new Error("The demo store has no live session.");
+  return `${path}?sessionId=${encodeURIComponent(session.id)}`;
+}
+
 describe("Campus Attendance screens", () => {
   it("shows the student overview and attendance warning", async () => {
     renderApp();
@@ -61,6 +84,7 @@ describe("Campus Attendance screens", () => {
   });
 
   it("supports entering and submitting a check-in code once", async () => {
+    clearAmaraCheckIn();
     const user = userEvent.setup();
     renderApp("/check-in");
     await user.click(
@@ -97,7 +121,14 @@ describe("Campus Attendance screens", () => {
   it("shows scanner coverage loss and the fixed-code banner", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    renderApp("/lecturer/live");
+    renderApp(demoSessionPath("/lecturer/live"));
+    await waitFor(
+      () =>
+        expect(screen.getByRole("main")).toHaveTextContent(
+          "Engineering Mathematics III",
+        ),
+      { timeout: 5000 },
+    );
 
     await user.selectOptions(
       await screen.findByRole("combobox", {
@@ -132,7 +163,7 @@ describe("Campus Attendance screens", () => {
       configurable: true,
       value: { request },
     });
-    renderApp("/lecturer/live");
+    renderApp(demoSessionPath("/lecturer/live"));
 
     await user.click(
       (await screen.findAllByRole("button", { name: "Board mode" }))[0]!,
@@ -160,9 +191,13 @@ describe("Campus Attendance screens", () => {
     const user = userEvent.setup();
     renderApp("/lecturer/report");
     await user.click(
-      await screen.findByRole("checkbox", {
-        name: "Select all visible students",
-      }),
+      await waitFor(
+        () =>
+          screen.getByRole("checkbox", {
+            name: "Select all visible students",
+          }),
+        { timeout: 5000 },
+      ),
     );
     await user.click(
       await screen.findByRole("button", { name: "Override selected (6)" }),
@@ -204,6 +239,94 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText("Amara Okafor").length).toBeGreaterThan(0);
     expect(screen.getAllByText("2021 / 19422").length).toBeGreaterThan(0);
+  });
+
+  it("starts a session, polls its returned code, and ends that session", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderApp("/lecturer/start");
+    await waitFor(
+      () =>
+        expect(screen.getByRole("main")).toHaveTextContent(
+          "Start an attendance session",
+        ),
+      { timeout: 5000 },
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Start session" }),
+    );
+
+    await waitFor(() =>
+      expect(getDemoState().sessions).toHaveLength(2),
+    );
+    await waitFor(
+      () => expect(screen.getByText("726 519")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    const createdSession = getDemoState().sessions.at(-1);
+    if (!createdSession)
+      throw new Error("The mock API did not create an attendance session.");
+    expect(createdSession.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(window.location.search).toBe(
+      `?sessionId=${encodeURIComponent(createdSession.id)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: "End session" }));
+    await waitFor(() =>
+      expect(
+        getDemoState().sessions.find(
+          (session) => session.id === createdSession.id,
+        )?.state,
+      ).toBe("ended"),
+    );
+    confirm.mockRestore();
+  });
+
+  it("checks in against the selected live class session ID", async () => {
+    clearAmaraCheckIn();
+    const user = userEvent.setup();
+    renderApp("/lecturer/start");
+    await user.click(
+      await screen.findByRole("button", { name: "Start session" }),
+    );
+    await waitFor(() =>
+      expect(getDemoState().sessions).toHaveLength(2),
+    );
+    await waitFor(
+      () => expect(screen.getByText("726 519")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    const createdSession = getDemoState().sessions.at(-1);
+    if (!createdSession)
+      throw new Error("The mock API did not create an attendance session.");
+    await user.click(
+      screen.getByRole("link", { name: "CampusCheck home" }),
+    );
+    await user.click(await screen.findByRole("link", { name: "Check in" }));
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Live class" }),
+      createdSession.id,
+    );
+    await user.click(screen.getByRole("button", { name: "Share location" }));
+    await screen.findByText("Location ready");
+    await user.type(
+      screen.getByRole("textbox", { name: "Code digit 1" }),
+      createdSession.code,
+    );
+    await user.click(screen.getByRole("button", { name: /Check in to class/ }));
+    await screen.findByRole("heading", { name: /You're checked in/ });
+
+    expect(
+      getDemoState().attendance.find(
+        (record) =>
+          record.studentId === "2021-18420" &&
+          record.sessionId === createdSession.id,
+      )?.webTime,
+    ).not.toBe("—");
   });
 
   it("requires a mock session, opens the selected role dashboard, and logs out", async () => {
@@ -267,9 +390,17 @@ describe("Campus Attendance screens", () => {
         }),
       ).toBeInTheDocument();
     }
+    expect(getMockSession()).toBeNull();
+    expect(sessionStorage.getItem("campuscheck-demo-session")).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Log out and reset demo" }),
+    );
+    expect(getMockSession()).toBeNull();
+    expect(sessionStorage.getItem("campuscheck-demo-session")).toBeNull();
   });
 
   it("shares check-ins and lecturer overrides across roles and resets demo data", async () => {
+    clearAmaraCheckIn();
     const user = userEvent.setup();
     renderApp("/check-in");
 
