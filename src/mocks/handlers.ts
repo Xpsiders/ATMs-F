@@ -28,7 +28,7 @@ function apiError(status: number, code: string, message: string) {
 }
 
 export const handlers = [
-  http.get(`${apiBaseUrl}/offerings`, () =>
+  http.get(`${apiBaseUrl}/me/offerings`, () =>
     HttpResponse.json(listDemoOfferings()),
   ),
   http.get(`${apiBaseUrl}/venues`, () =>

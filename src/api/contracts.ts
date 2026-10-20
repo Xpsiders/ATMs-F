@@ -4,12 +4,12 @@ export type SessionCodeResponse =
   operations["getSessionCode"]["responses"][200]["content"]["application/json"];
 export type LiveClassesResponse =
   operations["getMyLiveClasses"]["responses"][200]["content"]["application/json"];
-export type LiveClass = components["schemas"]["LiveClass"];
+export type LiveClass = LiveClassesResponse["items"][number];
 export type VenueListResponse =
   operations["listVenues"]["responses"][200]["content"]["application/json"];
-export type Venue = components["schemas"]["Venue"];
+export type Venue = VenueListResponse["items"][number];
 export type OfferingsResponse =
-  operations["listOfferings"]["responses"][200]["content"]["application/json"];
+  operations["getMyOfferings"]["responses"][200]["content"]["application/json"];
 export type StartSessionRequest =
   operations["startSession"]["requestBody"]["content"]["application/json"];
 export type StartSessionResponse =

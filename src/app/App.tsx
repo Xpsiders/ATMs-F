@@ -241,24 +241,6 @@ export function App() {
           </span>
         </Link>
         <div className="workspace-label">WORKSPACE</div>
-        <label className="role-select-label" htmlFor="role-select">
-          Your workspace
-        </label>
-        <select
-          id="role-select"
-          className="role-select"
-          value={role}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (value in DEMO_ROLE_LABELS) setRole(value as DemoRole);
-          }}
-        >
-          {Object.entries(DEMO_ROLE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
         <nav className="side-nav" aria-label="Main navigation">
           <span className="nav-section">YOUR CAMPUS</span>
           {role === "student" ? (
@@ -345,7 +327,6 @@ export function App() {
             onClick={() => {
               if (mockMode) {
                 clearMockSession();
-                resetDemoData();
               }
               clearAuth();
               navigate("/login");

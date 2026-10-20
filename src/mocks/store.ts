@@ -1,4 +1,9 @@
 import type { components } from "@/api/schema";
+import type {
+  LiveClassesResponse,
+  StartSessionRequest,
+  VenueListResponse,
+} from "@/api/contracts";
 
 export type DemoOffering = {
   id: string;
@@ -70,20 +75,20 @@ export type DemoState = {
   auditEvents: string[];
 };
 
-export const DEMO_VENUES: components["schemas"]["Venue"][] = [
+export const DEMO_VENUES: VenueListResponse["items"] = [
   {
     id: "3f2b8c1e-5a7d-4c1b-9e2a-8d6f4a1b7c90",
     name: "LT 2",
     latitude: 7.5172,
     longitude: 4.5226,
-    radius_m: 60,
+    radius_meters: 60,
   },
   {
     id: "5f8b1042-7c3d-4b6e-a9f1-2d8c6e0a3b57",
     name: "Room 14",
     latitude: 7.5175,
     longitude: 4.5229,
-    radius_m: 60,
+    radius_meters: 60,
   },
 ];
 
@@ -182,7 +187,7 @@ const INITIAL_DEMO_STATE: DemoState = {
       lateAfterMin: 15,
       latitude: DEMO_VENUES[0]!.latitude,
       longitude: DEMO_VENUES[0]!.longitude,
-      radiusMeters: DEMO_VENUES[0]!.radius_m,
+      radiusMeters: DEMO_VENUES[0]!.radius_meters,
       state: "live",
       code: "381204",
       rotating: true,
@@ -282,20 +287,29 @@ export function resetDemoData(): void {
 
 export function listDemoOfferings(): components["schemas"]["PagedCatalogueItems"] {
   return {
-    items: demoState.offerings.map(({ id }) => ({ id })),
+    items: demoState.offerings.map(({ id, code, title }) => ({
+      id,
+      course_code: code,
+      course_title: title,
+    })),
     limit: demoState.offerings.length,
     offset: 0,
     has_more: false,
   };
 }
 
-export function listDemoVenues(): components["schemas"]["VenueListResponse"] {
-  return { items: structuredClone(DEMO_VENUES), total: DEMO_VENUES.length };
+export function listDemoVenues(): VenueListResponse {
+  return {
+    items: structuredClone(DEMO_VENUES),
+    limit: DEMO_VENUES.length,
+    offset: 0,
+    total: DEMO_VENUES.length,
+  };
 }
 
 export function listDemoLiveClasses(
   studentId?: string,
-): components["schemas"]["LiveClassesResponse"] {
+): LiveClassesResponse {
   return {
     items: demoState.sessions
       .filter((session) => session.state === "live")
@@ -332,7 +346,7 @@ export function listDemoLiveClasses(
 }
 
 export function createDemoSession(
-  request: components["schemas"]["StartSessionRequest"],
+  request: StartSessionRequest,
 ): components["schemas"]["SessionCodeResponse"] | null {
   const offering = demoState.offerings.find(
     (candidate) => candidate.id === request.offering_id,
@@ -353,9 +367,9 @@ export function createDemoSession(
     date: startedAt.slice(0, 10),
     startedAt,
     lateAfterMin: request.late_after_min ?? 10,
-    latitude: request.latitude ?? venue.latitude,
-    longitude: request.longitude ?? venue.longitude,
-    radiusMeters: request.radius_meters ?? venue.radius_m,
+    latitude: venue.latitude,
+    longitude: venue.longitude,
+    radiusMeters: venue.radius_meters,
     state: "live",
     code,
     rotating: request.rotating_code,

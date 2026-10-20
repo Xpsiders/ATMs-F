@@ -14,8 +14,11 @@ operations and payloads; frontend aliases are maintained in
 | `POST /auth/signup-claim` | Requires `institution_id`, `matric_no`, and `email`; returns an enumeration-safe 202 acknowledgement. |
 | `POST /auth/verify-email` | Requires `institution_id`, `matric_no`, six-digit `code`, and `password`; returns a token response. |
 | `POST /auth/password/change` | Requires `current_password` and `new_password`. |
+| `GET /me/offerings` | Returns paginated offerings visible to the authenticated lecturer; `id` is generated as UUID. Additional course display fields are allowed but not specified by the schema. |
+| `GET /venues` | Returns paginated venue items with `id`, `name`, `latitude`, `longitude`, and `radius_meters`. |
+| `GET /me/live-classes` | Returns live sessions visible to the authenticated student, including session/offering/venue IDs and course display fields. |
 | `POST /checkins` | Requires session ID, six-digit code, coordinates, and accuracy; returns `present` or `late`, roster/accuracy flags, and distance. |
-| `POST /sessions` | Requires offering/venue IDs and `rotating_code`; returns the session and code response. |
+| `POST /sessions` | The frontend sends exactly `offering_id`, `venue_id`, boolean `rotating_code`, and numeric `late_after_min` as JSON. The response includes the created `session.id`, code, and server-authoritative remaining seconds. |
 | `GET /sessions/{id}/code` | Returns `session`, `code`, and server-authoritative `seconds_remaining`. |
 | `PATCH /sessions/{id}` | `{ rotating: false }` converts once to fixed code; response is the session code response. |
 | `POST /sessions/{id}/end` | Ends a session and returns the session. |
@@ -27,24 +30,16 @@ operations and payloads; frontend aliases are maintained in
 student-claim requests. The repository does not provide an institution-specific
 default.
 
-## Locally drafted operations
+`GET /me/offerings` is used for the lecturer's selector rather than the
+institution-wide `GET /offerings`. The generated catalogue item guarantees an
+ID but permits additional fields; the selector displays `course_code` /
+`course_title` or `code` / `title` when returned, and never substitutes an ID
+for the course label.
 
-The sibling backend OpenAPI did not define these two operations when the
-session-ID flows were connected. They are marked `x-draft: true` in
-`api/openapi.yaml` and must be confirmed by the backend owner:
-
-| Operation | Draft response fields relied on by the UI |
-| --- | --- |
-| `GET /me/live-classes` | `{ items: LiveClass[] }`; each item has `session_id`, `offering_id`, `course_code`, `course_title`, `venue_id`, `venue_name`, `lecturer_name`, `started_at`, `late_after_min`, `rotating_code`, and `already_checked_in`. |
-| `GET /venues` | `{ items: Venue[], total }`; each venue has `id`, `name`, `latitude`, `longitude`, and `radius_m`. |
-
-`GET /offerings` is present in the synced contract. The frontend relies only on
-each item's `id`; display labels use the generated `Offering {id}` fallback
-because the contract does not guarantee course title/code fields on this list.
-`POST /sessions` accepts the selected offering and venue IDs plus session
-options, and the frontend relies on the response's `session.id` as the
-authoritative ID for code polling and ending that session. The mock store adds
-richer demo descriptions separately.
+The `POST /sessions` request schema forbids additional properties. The UI sends
+only the two selected IDs and the two session options; venue coordinates and
+radius are copied by the backend from the selected venue. The returned
+`session.id` is the authoritative ID for code polling and session ending.
 
 ## Operations not present in the synced contract
 
@@ -60,9 +55,8 @@ code polling, session ending, report links, and print-sheet requests. Student
 check-in loads `GET /me/live-classes` and submits the selected class's returned
 session ID. Mock sessions use generated UUIDs; no attendance-session ID is
 hardcoded. Live/report summary numbers and mock report rows remain seeded. The
-two locally drafted operations have not been validated against a running
-backend; the backend was unavailable during the implementation and both
-operations must be confirmed by its owner before real-API use.
+synced operations have not been validated against a running backend during
+this task.
 
 All API error responses use the contract's `ErrorEnvelope`. `Retry-After` is
 parsed as either seconds or an HTTP date by the shared API client.

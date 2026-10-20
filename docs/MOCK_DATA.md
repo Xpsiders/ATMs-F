@@ -11,7 +11,7 @@ All credentials and records below are fictional development fixtures. Enable the
 | `admin.department@campus.example` | `DepartmentDemo!2026` | Department admin | Department dashboard |
 | `admin.institution@campus.example` | `InstitutionDemo!2026` | Institution admin | Institution dashboard |
 
-The one-click login controls select the role without storing the displayed password. The current role is held in memory and in the dev-only `campuscheck-demo-session` session-storage flag. A fresh session without that flag receives a mock `401` from `POST /auth/refresh`.
+The one-click login controls select the role without storing the displayed password. The current role is held in memory and in the dev-only `campuscheck-mock-role` session-storage flag. A fresh session without that flag receives a mock `401` from `POST /auth/refresh`.
 
 ## Seeded offerings and classes
 
@@ -31,7 +31,7 @@ The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. The
 
 | Kind | Seed |
 |---|---|
-| Session | `demo-session`, ENG 301, 17 February 2025, Engineering Building · Lecture Theatre 2, live, rotating code `381204`, full scanner coverage |
+| Session | A UUID generated at mock-store initialization, ENG 301, started 20 October 2026 at 08:02 UTC, LT 2, live, rotating code `381204`, full scanner coverage |
 | Live counts | 184 registered, 142 web check-ins, 12 fingerprint scans |
 | Scanner | `scanner-lt2`, Engineering Building · Lecture Theatre 2, online |
 | Student | Amara Okafor — id `2021-18420`, matric `2021 / 18420`, Computer Engineering |

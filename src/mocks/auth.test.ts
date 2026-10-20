@@ -26,6 +26,6 @@ describe("mock session", () => {
     startMockSession("lecturer");
     expect(mockRefreshResponse().status).toBe(204);
     expect(getMockSession()?.role).toBe("lecturer");
-    expect(sessionStorage.getItem("campuscheck-demo-session")).toBe("lecturer");
+    expect(sessionStorage.getItem("campuscheck-mock-role")).toBe("lecturer");
   });
 });

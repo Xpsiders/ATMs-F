@@ -13,7 +13,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | App | Authenticated app shell, app bar, theme selector, online/offline banner | Done | Shared shell renders navigation, theme selection and network state. Backend-derived identity/permissions are not available in the draft contract. |
 | App | Student navigation (phone bottom tabs, laptop top nav) | Done | Student-only mobile tab bar and laptop nav render; active route is indicated. |
 | App | Lecturer/admin navigation (drawer and collapsed rail) | Placeholder | Drawer/rail styling exists, but the responsive behavior has not been verified against the specified 375/768/1280 breakpoints. Responsive-navigation tests are intentionally deferred by user request. |
-| App | Role guards, route error boundary, unauthorized/403 and not-found screens | Placeholder | 403/not-found text routes exist, but there is no route guard or error boundary; the draft API has no role claims to implement a reliable guard. |
+| App | Role guards, route error boundary, unauthorized/403 and not-found screens | Placeholder | 403/not-found text routes exist, but role routing/guards and an error boundary are not wired to the backend identity yet. |
 | Auth | Login and logout | Done | Real API login path and mock login work. Mock refresh returns 401 without a session; demo panel offers one-click student, lecturer, department-admin, institution-admin login and reset/logout. Tests cover role dashboards and logout. |
 | Auth | Signup / claim student account | Placeholder | Real mode calls the contract's claim endpoint and requires `VITE_INSTITUTION_ID`; the mock form still advances without a mock claim mutation. |
 | Auth | Verify email / one-time code | Placeholder | Real mode submits code and password together to the contract's verify-email endpoint; mock mode does not validate a code or verify an account. |
@@ -31,7 +31,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Attendance disputes | Placeholder | Informational page only; no dispute submission or status tracking. |
 | Student | Student profile / privacy details | Placeholder | Informational page only; no profile edit or complete account-backed data flow. |
 | Lecturer | Offerings / teaching list | Placeholder | The teaching list is still static, but its start links open the working session form. |
-| Lecturer | Start/create attendance session | Done | Loads offering IDs and venues, submits `POST /sessions` with selected offering, venue and options, then navigates with the returned session ID. Mock handlers share the created session; real backend connectivity was unavailable for this task. |
+| Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
 | Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for `GET /sessions/{id}/code` polling and `POST /sessions/{id}/end`; errors display the API code/message. The roster and aggregate counts are still seeded. |
 | Lecturer | Projector mode | Done | Fullscreen request, scalable code and theme toggle are available; real projector behavior is unverified. |
 | Lecturer | Board mode / power-cut fallback | Done | Portrait-friendly code/count display, fullscreen/Escape handling and feature-detected Wake Lock are implemented. |
@@ -67,23 +67,22 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | No offline mutation queue/retry | Done | Check-in is disabled offline and mutations are not queued; real airplane-mode behavior remains a manual check. |
 | Shared mock store and reset | Done | Shared state covers check-in, enrollment, history, lecturer roster/report, overrides, scanner/session state and print roster; reset restores fixture state. |
 | Route-level code splitting and student initial bundle target | Done | Initial student JS **112.26 kB gzip**, below the ~200 kB target; lecturer and admin are separate lazy chunks (**5.83 kB** and **1.05 kB gzip**). |
-| API contract, generated types and centralized errors | Partial | Session creation, session-code polling, session ending and student live-class selection use generated types. `GET /me/live-classes` and `GET /venues` are explicitly draft operations added locally because the sibling OpenAPI lacked them. Forgot/reset-password and standalone verification endpoints are not in the contract and explicitly report unsupported in real mode. Real-backend compatibility is unverified. |
+| API contract, generated types and centralized errors | Partial | Session creation, code polling, session ending, lecturer offerings/venues, and student live-class selection use generated types from the synced backend contract. The generic catalogue schema does not specify course code/title properties, so the UI safely reads optional code/title values when the API provides them. Forgot/reset-password and standalone verification endpoints are not in the contract and explicitly report unsupported in real mode. Real-backend compatibility is unverified. |
 | CI and documentation coverage | Done | CI and baseline docs exist; this inventory calls out incomplete product screens. |
 
 ## Validation and latest measured output
 
-Validation for the session-flow task (commands run from the repository root):
+Validation for the session form contract-alignment task (commands run from the repository root):
 
 | Command | Result |
 |---|---|
-| `pnpm sync:api` | Not run for this task; the two locally drafted operations remain in `api/openapi.yaml` and generated types are refreshed with `pnpm gen:api`. |
-| `pnpm lint` | Passed; 0 errors and 6 Fast Refresh warnings in `shared/ui/primitives.tsx`. |
-| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
-| `pnpm test` | Passed; 10 test files and 39 tests passed. |
-| `pnpm build` | Passed; Vite transformed 307 modules and generated a production build. |
+| `pnpm sync:api` | Passed; copied the current `../ATMs/api/openapi.yaml` and regenerated `src/api/schema.d.ts`. |
+| Initial `pnpm typecheck` after sync | Failed on obsolete `LiveClass`/`Venue` schema aliases and the previous `radius_m` field. Those mismatches were fixed by aliasing generated operation response types and using `radius_meters`. |
+| `pnpm lint` | Passed; 0 errors and 6 existing Fast Refresh warnings in `shared/ui/primitives.tsx`. |
+| Final `pnpm typecheck` | Passed after contract alignment; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 10 test files and 40 tests passed, including exact JSON request body, field errors, and returned session ID polling/end assertions. |
+| `pnpm build` | Passed; Vite transformed 307 modules. JS chunks were **376.66 kB / 113.41 kB gzip**, **24.16 kB / 7.10 kB gzip**, and **2.47 kB / 1.05 kB gzip** (total **403.29 kB / 121.56 kB gzip**); CSS **58.25 kB / 12.59 kB gzip**. |
 
-Latest production assets from `pnpm build`: JS chunks **376.93 kB / 113.49 kB gzip**, **23.40 kB / 6.81 kB gzip**, and **2.47 kB / 1.05 kB gzip** (total **402.80 kB / 121.35 kB gzip**); CSS **58.26 kB / 12.54 kB gzip**. Vite did not label the emitted chunks by feature in its output.
-
-Current task complete: removed hardcoded attendance-session IDs and wired session creation, server-code polling/end, and student check-in to API-returned IDs. Session creation, selected-session check-in, mock sharing, API error display and hook behavior are covered by tests. The backend was unavailable during this task, so the locally drafted operations still need backend confirmation. Next task: route after login from backend `GET /me` role data.
+Current task complete: aligned the lecturer session form to the synced contract, improved course labels and field errors, removed the role switcher, and verified the returned-ID session lifecycle. Remaining platform limitations include 375/768/1280 automated viewport coverage, real-backend compatibility, and real-device behavior for GPS, Wake Lock, fullscreen, airplane mode, printing, and power loss. Recommended next task: route after login from backend `GET /me` role data.
 
 The following are not established yet: 375/768/1280 automated viewport coverage, real-backend compatibility, and real-device behavior for GPS, Wake Lock, fullscreen, airplane mode, printing, and power loss.

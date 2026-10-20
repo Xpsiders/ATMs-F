@@ -4,7 +4,7 @@ import { apiRequest, downloadApiFile } from "@/shared/lib/apiClient";
 import { useServerCode } from "@/shared/hooks/useServerCode";
 import { requestScreenWakeLock } from "@/shared/lib/wakeLock";
 import { formatInitials } from "@/shared/lib/format";
-import { formatApiError } from "@/api/errors";
+import { ApiError, formatApiError } from "@/api/errors";
 import type {
   AttendanceOverrideRequest,
   BulkOverrideResponse,
@@ -40,6 +40,48 @@ const ATTENDANCE_STATUS_LABELS: Record<DemoAttendance["status"], string> = {
   late: "Late",
   excused: "Excused",
 };
+
+function getOfferingLabel(offering: OfferingsResponse["items"][number]) {
+  const code =
+    typeof offering.course_code === "string"
+      ? offering.course_code
+      : typeof offering.code === "string"
+        ? offering.code
+        : undefined;
+  const title =
+    typeof offering.course_title === "string"
+      ? offering.course_title
+      : typeof offering.title === "string"
+        ? offering.title
+        : undefined;
+  if (code && title) return `${code} · ${title}`;
+  return code ?? title ?? "Course details unavailable";
+}
+
+function getFieldErrors(error: unknown): { field: string; message: string }[] {
+  if (
+    !(error instanceof ApiError) ||
+    typeof error.details !== "object" ||
+    !error.details
+  )
+    return [];
+  const details = error.details;
+  if (
+    !("fields" in details) ||
+    typeof details.fields !== "object" ||
+    !details.fields
+  )
+    return [];
+  return Object.entries(details.fields).flatMap(([field, value]) => {
+    const messages =
+      typeof value === "string"
+        ? [value]
+        : Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string")
+          : [];
+    return messages.map((message) => ({ field, message }));
+  });
+}
 
 export function Teaching() {
   return (
@@ -105,12 +147,15 @@ export function StartSession() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<
+    { field: string; message: string }[]
+  >([]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     void Promise.all([
-      apiRequest<OfferingsResponse>("/offerings?limit=200&offset=0"),
+      apiRequest<OfferingsResponse>("/me/offerings?limit=200&offset=0"),
       apiRequest<VenueListResponse>("/venues"),
     ])
       .then(([offeringResponse, venueResponse]) => {
@@ -135,30 +180,31 @@ export function StartSession() {
 
   async function startSession(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const venue = venues.find((item) => item.id === venueId);
-    if (!offeringId || !venue) {
+    if (!offeringId || !venueId) {
       setError("Choose an offering and venue before starting the session.");
       return;
     }
     setSaving(true);
     setError("");
+    setFieldErrors([]);
     const payload: StartSessionRequest = {
       offering_id: offeringId,
-      venue_id: venue.id,
+      venue_id: venueId,
       rotating_code: rotatingCode,
       late_after_min: lateAfterMin,
-      latitude: venue.latitude,
-      longitude: venue.longitude,
-      radius_meters: venue.radius_m,
     };
     try {
       const result = await apiRequest<StartSessionResponse>("/sessions", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      navigate(`/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`);
+      navigate(
+        `/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`,
+      );
     } catch (caught) {
       setError(formatApiError(caught));
+      setFieldErrors(getFieldErrors(caught));
     } finally {
       setSaving(false);
     }
@@ -175,6 +221,15 @@ export function StartSession() {
         {error && (
           <div className="form-error" role="alert">
             {error}
+            {fieldErrors.length > 0 && (
+              <ul className="form-field-errors" aria-label="Field errors">
+                {fieldErrors.map(({ field, message }, index) => (
+                  <li key={`${field}-${index}`}>
+                    <strong>{field}</strong>: {message}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {loading ? (
@@ -194,7 +249,7 @@ export function StartSession() {
             >
               {offerings.map((offering) => (
                 <option key={offering.id} value={offering.id}>
-                  Offering {offering.id}
+                  {getOfferingLabel(offering)}
                 </option>
               ))}
             </select>
@@ -230,6 +285,7 @@ export function StartSession() {
               type="number"
               min={0}
               max={240}
+              step={1}
               value={lateAfterMin}
               onChange={(event) => setLateAfterMin(Number(event.target.value))}
               required

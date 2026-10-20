@@ -8,7 +8,15 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserRouter } from "react-router-dom";
+import { http, HttpResponse } from "msw";
 import { App } from "./App";
+import { server } from "@/test/setup";
+import type {
+  EndSessionResponse,
+  SessionCodeResponse,
+  StartSessionRequest,
+  StartSessionResponse,
+} from "@/api/contracts";
 import {
   clearMockSession,
   getMockSession,
@@ -244,6 +252,51 @@ describe("Campus Attendance screens", () => {
   it("starts a session, polls its returned code, and ends that session", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const offeringId = getDemoState().offerings[1]?.id;
+    const venueId = "3f2b8c1e-5a7d-4c1b-9e2a-8d6f4a1b7c90";
+    if (!offeringId) throw new Error("The mock API has no seeded offering.");
+    const sessionId = "b9d3bc38-d5e3-4a6c-8a67-6e4e4130d176";
+    const session: StartSessionResponse["session"] = {
+      id: sessionId,
+      offering_id: offeringId,
+      venue_id: venueId,
+      started_at: "2026-10-20T08:00:00Z",
+      latitude: 7.5172,
+      longitude: 4.5226,
+      radius_meters: 60,
+      rotating_code: false,
+      late_after_min: 17,
+    };
+    const response: StartSessionResponse = {
+      session,
+      code: "928361",
+      seconds_remaining: 22,
+    };
+    let startBody: unknown;
+    let contentType: string | null = null;
+    const codeSessionIds: string[] = [];
+    const endedSessionIds: string[] = [];
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    server.use(
+      http.post(`${apiBaseUrl}/sessions`, async ({ request }) => {
+        startBody = await request.json();
+        contentType = request.headers.get("Content-Type");
+        return HttpResponse.json(response, { status: 201 });
+      }),
+      http.get(`${apiBaseUrl}/sessions/:id/code`, ({ params }) => {
+        codeSessionIds.push(String(params.id));
+        const codeResponse: SessionCodeResponse = {
+          ...response,
+          seconds_remaining: 22,
+        };
+        return HttpResponse.json(codeResponse);
+      }),
+      http.post(`${apiBaseUrl}/sessions/:id/end`, ({ params }) => {
+        endedSessionIds.push(String(params.id));
+        return HttpResponse.json(session satisfies EndSessionResponse);
+      }),
+    );
     renderApp("/lecturer/start");
     await waitFor(
       () =>
@@ -253,36 +306,89 @@ describe("Campus Attendance screens", () => {
       { timeout: 5000 },
     );
 
+    const offeringSelect = await screen.findByRole("combobox", {
+      name: "Offering",
+    });
+    expect(
+      within(offeringSelect).getByRole("option", {
+        name: "CPE 305 · Computer Architecture",
+      }),
+    ).toBeInTheDocument();
+    await user.selectOptions(offeringSelect, offeringId);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Venue" }),
+      venueId,
+    );
+    await user.clear(
+      screen.getByRole("spinbutton", { name: "Mark late after (minutes)" }),
+    );
+    await user.type(
+      screen.getByRole("spinbutton", { name: "Mark late after (minutes)" }),
+      "17",
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Use rotating attendance code" }),
+    );
     await user.click(
       await screen.findByRole("button", { name: "Start session" }),
     );
 
-    await waitFor(() =>
-      expect(getDemoState().sessions).toHaveLength(2),
-    );
     await waitFor(
-      () => expect(screen.getByText("726 519")).toBeInTheDocument(),
+      () => expect(screen.getByText("928 361")).toBeInTheDocument(),
       { timeout: 5000 },
     );
-    const createdSession = getDemoState().sessions.at(-1);
-    if (!createdSession)
-      throw new Error("The mock API did not create an attendance session.");
-    expect(createdSession.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
+    expect(startBody).toEqual({
+      offering_id: offeringId,
+      venue_id: venueId,
+      rotating_code: false,
+      late_after_min: 17,
+    } satisfies StartSessionRequest);
+    expect(contentType).toBe("application/json");
     expect(window.location.search).toBe(
-      `?sessionId=${encodeURIComponent(createdSession.id)}`,
+      `?sessionId=${encodeURIComponent(sessionId)}`,
     );
+    await waitFor(() => expect(codeSessionIds).toContain(sessionId));
 
     await user.click(screen.getByRole("button", { name: "End session" }));
-    await waitFor(() =>
-      expect(
-        getDemoState().sessions.find(
-          (session) => session.id === createdSession.id,
-        )?.state,
-      ).toBe("ended"),
-    );
+    await waitFor(() => expect(endedSessionIds).toContain(sessionId));
     confirm.mockRestore();
+  });
+
+  it("shows API field errors beside the start-session form", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    server.use(
+      http.post(`${apiBaseUrl}/sessions`, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: "invalid_request",
+              message: "The venue is not available.",
+              details: {
+                fields: {
+                  venue_id: ["Choose a venue in your institution."],
+                  late_after_min: "Must be a whole number.",
+                },
+              },
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    renderApp("/lecturer/start");
+    await user.click(
+      await screen.findByRole("button", { name: "Start session" }),
+    );
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent(
+      "invalid_request: The venue is not available.",
+    );
+    expect(error).toHaveTextContent(
+      "venue_id: Choose a venue in your institution.",
+    );
+    expect(error).toHaveTextContent("late_after_min: Must be a whole number.");
   });
 
   it("checks in against the selected live class session ID", async () => {
@@ -338,6 +444,9 @@ describe("Campus Attendance screens", () => {
       await screen.findByRole("heading", { name: "Sign in to your account" }),
     ).toBeInTheDocument();
     expect(
+      screen.queryByRole("combobox", { name: "Your workspace" }),
+    ).not.toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: "Log out and reset demo" }),
     ).toBeInTheDocument();
 
@@ -371,6 +480,9 @@ describe("Campus Attendance screens", () => {
       expect(
         await screen.findByRole("heading", { name: account.heading }),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("combobox", { name: "Your workspace" }),
+      ).not.toBeInTheDocument();
       expect(document.querySelector(".app-shell")).toHaveAttribute(
         "data-role",
         account.role,
@@ -391,12 +503,12 @@ describe("Campus Attendance screens", () => {
       ).toBeInTheDocument();
     }
     expect(getMockSession()).toBeNull();
-    expect(sessionStorage.getItem("campuscheck-demo-session")).toBeNull();
+    expect(sessionStorage.getItem("campuscheck-mock-role")).toBeNull();
     await user.click(
       screen.getByRole("button", { name: "Log out and reset demo" }),
     );
     expect(getMockSession()).toBeNull();
-    expect(sessionStorage.getItem("campuscheck-demo-session")).toBeNull();
+    expect(sessionStorage.getItem("campuscheck-mock-role")).toBeNull();
   });
 
   it("shares check-ins and lecturer overrides across roles and resets demo data", async () => {
@@ -416,9 +528,9 @@ describe("Campus Attendance screens", () => {
     await screen.findByRole("heading", { name: /You're checked in/ });
     expect(getDemoState().attendance[0]?.webTime).not.toBe("09:07");
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Your workspace" }),
-      "lecturer",
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Sign in as Lecturer" }),
     );
     await user.click(screen.getByRole("link", { name: "Session reports" }));
     const amaraRow = await screen.findByRole("row", { name: /Amara Okafor/ });
@@ -440,9 +552,9 @@ describe("Campus Attendance screens", () => {
       screen.getByRole("button", { name: "Confirm audited change" }),
     );
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Your workspace" }),
-      "student",
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Sign in as Student" }),
     );
     await user.click(screen.getAllByRole("link", { name: "Attendance" })[0]!);
     expect(

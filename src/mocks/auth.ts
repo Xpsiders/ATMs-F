@@ -52,7 +52,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
   },
 ];
 
-const SESSION_KEY = "campuscheck-demo-session";
+const SESSION_KEY = "campuscheck-mock-role";
 let activeAccount: DemoAccount | null = null;
 
 export function isMockMode(): boolean {
