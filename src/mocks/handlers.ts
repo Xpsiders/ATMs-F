@@ -75,9 +75,12 @@ export const handlers = [
     };
     return HttpResponse.json(profile);
   }),
-  http.get(`${apiBaseUrl}/me/offerings`, () =>
-    HttpResponse.json(listDemoOfferings()),
-  ),
+  http.get(`${apiBaseUrl}/me/offerings`, () => {
+    const account = getMockSession();
+    if (!account || account.role !== "lecturer")
+      return apiError(403, "not_a_lecturer", "This endpoint is for lecturers.");
+    return HttpResponse.json(listDemoOfferings(account.name));
+  }),
   http.get(`${apiBaseUrl}/me/courses`, () =>
     getMockSession()?.role === "student"
       ? HttpResponse.json(listDemoStudentCourses())

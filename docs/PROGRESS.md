@@ -30,7 +30,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Attendance history | Done | Course selector loads `/me/courses`, then per-course records from `/me/attendance`; loading/error/retry and no-courses/no-records states are implemented. |
 | Student | Attendance disputes | Placeholder | Informational page only; no dispute submission or status tracking. |
 | Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
-| Lecturer | Offerings / teaching list | Placeholder | The teaching list is still static, but its start links open the working session form. |
+| Lecturer | Offerings / teaching list | Done | Displays the signed-in lecturer's name and offerings returned by authenticated `/me/offerings`; loading, error/retry, empty states, and per-offering start links that select the matching offering are implemented. Real-backend assignment scoping remains unverified. |
 | Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
 | Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for `GET /sessions/{id}/code` polling and `POST /sessions/{id}/end`; errors display the API code/message. The roster and aggregate counts are still seeded. |
 | Lecturer | Projector mode | Done | Fullscreen request, scalable code and theme toggle are available; real projector behavior is unverified. |
@@ -120,3 +120,25 @@ Student home, class search and registration, course list, and attendance history
 | `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.03 kB / 115.51 kB gzip**, **24.22 kB / 7.13 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.51 kB / 13.14 kB gzip**. |
 
 No server or browser visual check was run; real-backend behavior remains unverified.
+
+## Lecturer offering and navigation review
+
+The lecturer landing page no longer renders the same hard-coded lecturer name,
+schedule, and offerings for every account. It displays the authenticated
+profile name and the offerings returned by `/me/offerings`; selecting
+“Start session” for an offering carries that offering ID into the session form.
+The mock `/me/offerings` response is now filtered to the signed-in demo
+lecturer's assignments.
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 10 test files and 50 tests passed, including scoped offering display and selected-offering session navigation. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.04 kB / 115.51 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+
+The integrated browser was not available at `http://localhost:5173` and no
+server was started. Therefore the reported click-back-to-home behavior could not
+be reproduced visually here; the role route and per-offering navigation are
+covered by component tests. Different real lecturer accounts and their backend
+offering assignments remain unverified.

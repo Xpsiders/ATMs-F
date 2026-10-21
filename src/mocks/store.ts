@@ -319,14 +319,19 @@ export function resetDemoData(): void {
   listeners.forEach((listener) => listener());
 }
 
-export function listDemoOfferings(): components["schemas"]["PagedCatalogueItems"] {
+export function listDemoOfferings(
+  lecturerName?: string,
+): components["schemas"]["PagedCatalogueItems"] {
+  const offerings = lecturerName
+    ? demoState.offerings.filter((offering) => offering.lecturer === lecturerName)
+    : demoState.offerings;
   return {
-    items: demoState.offerings.map(({ id, code, title }) => ({
+    items: offerings.map(({ id, code, title }) => ({
       id,
       course_code: code,
       course_title: title,
     })),
-    limit: demoState.offerings.length,
+    limit: offerings.length,
     offset: 0,
     has_more: false,
   };

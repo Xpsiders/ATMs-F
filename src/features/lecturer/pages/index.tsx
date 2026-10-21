@@ -8,6 +8,7 @@ import { ApiError, formatApiError } from "@/api/errors";
 import type {
   AttendanceOverrideRequest,
   BulkOverrideResponse,
+  CurrentUser,
   EndSessionResponse,
   OfferingsResponse,
   RosterPage,
@@ -83,13 +84,37 @@ function getFieldErrors(error: unknown): { field: string; message: string }[] {
   });
 }
 
-export function Teaching() {
+export function Teaching({ user }: { user: CurrentUser }) {
+  const [offerings, setOfferings] =
+    useState<OfferingsResponse["items"]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void apiRequest<OfferingsResponse>("/me/offerings?limit=200&offset=0")
+      .then((response) => {
+        if (active) setOfferings(response.items);
+      })
+      .catch((caught: unknown) => {
+        if (active) setError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
   return (
     <div className="page-stack">
       <PageHeading
         eyebrow="LECTURER WORKSPACE"
-        title="Good morning, Dr. Eze"
-        subtitle="Your classes are ready. Start a session when your students arrive."
+        title={`Welcome, ${user.name}`}
+        subtitle="Your assigned offerings are listed below. Start a session for the class when students arrive."
         action={
           <Link to="/lecturer/start" className="button primary-button">
             <Icon name="calendar" /> Start a session
@@ -99,37 +124,43 @@ export function Teaching() {
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Today's teaching</h2>
-            <p>Monday, 17 February · 3 offerings</p>
+            <h2>My offerings</h2>
+            <p>Offerings available to your lecturer account</p>
           </div>
         </div>
-        {[
-          "Human Computer Interaction · CSC 342",
-          "Database Management · CSC 326",
-          "Software Engineering · CSC 318",
-        ].map((item, i) => (
-          <div className="teaching-row" key={item}>
-            <span className="teaching-time">
-              {["9:00 AM", "11:00 AM", "1:00 PM"][i]}
-            </span>
-            <div>
-              <b>{item}</b>
-              <span>
-                {
-                  [
-                    "New Science · LT 2",
-                    "ICT Building · Room 14",
-                    "New Science · LT 1",
-                  ][i]
-                }
-              </span>
-            </div>
-            <Link to="/lecturer/start" className="text-button">
-              Start session{" "}
-              <Icon name="arrow" size={15} />
-            </Link>
+        {loading ? (
+          <p role="status">Loading your offerings…</p>
+        ) : error ? (
+          <div className="api-state-error" role="alert">
+            <p>{error}</p>
+            <button
+              className="text-button"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Retry
+            </button>
           </div>
-        ))}
+        ) : offerings.length ? (
+          offerings.map((offering) => (
+            <div className="teaching-row" key={offering.id}>
+              <div>
+                <b>{getOfferingLabel(offering)}</b>
+                <span>Assigned to your lecturer account</span>
+              </div>
+              <Link
+                to={`/lecturer/start?offeringId=${encodeURIComponent(offering.id)}`}
+                className="text-button"
+                aria-label={`Start ${getOfferingLabel(offering)} session`}
+              >
+                Start session <Icon name="arrow" size={15} />
+              </Link>
+            </div>
+          ))
+        ) : (
+          <p className="empty-state">
+            No offerings are assigned to your lecturer account.
+          </p>
+        )}
       </section>
     </div>
   );
@@ -137,6 +168,8 @@ export function Teaching() {
 
 export function StartSession() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedOfferingId = searchParams.get("offeringId");
   const [offerings, setOfferings] =
     useState<OfferingsResponse["items"]>([]);
   const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
@@ -162,7 +195,13 @@ export function StartSession() {
         if (!active) return;
         setOfferings(offeringResponse.items);
         setVenues(venueResponse.items);
-        setOfferingId(offeringResponse.items[0]?.id ?? "");
+        setOfferingId(
+          offeringResponse.items.find(
+            (offering) => offering.id === requestedOfferingId,
+          )?.id ??
+            offeringResponse.items[0]?.id ??
+            "",
+        );
         setVenueId(
           venueResponse.items[1]?.id ?? venueResponse.items[0]?.id ?? "",
         );
@@ -176,7 +215,7 @@ export function StartSession() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [requestedOfferingId]);
 
   async function startSession(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -15,6 +15,7 @@ import type {
   CurrentUser,
   EndSessionResponse,
   LiveClassesResponse,
+  OfferingsResponse,
   SessionCodeResponse,
   StartSessionRequest,
   StartSessionResponse,
@@ -109,6 +110,55 @@ describe("Campus Attendance screens", () => {
         { timeout: 5000 },
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows only API offerings assigned to the lecturer and starts the selected offering", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const assignedOfferings: OfferingsResponse = {
+      items: [
+        {
+          id: "10000000-0000-4000-8000-000000000731",
+          course_code: "BIO 731",
+          course_title: "API Lecturer's Assigned Course",
+        },
+      ],
+      limit: 1,
+      offset: 0,
+      has_more: false,
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me/offerings`, () =>
+        HttpResponse.json(assignedOfferings),
+      ),
+    );
+    renderApp("/lecturer", true, "lecturer");
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Welcome, Dr. Ngozi Eze",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("BIO 731 · API Lecturer's Assigned Course"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Human Computer Interaction · CSC 342"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("link", {
+        name: "Start BIO 731 · API Lecturer's Assigned Course session",
+      }),
+    );
+    const offeringSelect = await screen.findByRole("combobox", {
+      name: "Offering",
+    });
+    await waitFor(() => expect(offeringSelect).toHaveValue(assignedOfferings.items[0]!.id));
+    expect(window.location.pathname).toBe("/lecturer/start");
+    expect(
+      screen.getByRole("link", { name: "CampusCheck home" }),
+    ).toHaveAttribute("href", "/lecturer");
   });
 
   it("renders the home screen from backend live, timetable, and course data", async () => {
@@ -571,7 +621,7 @@ describe("Campus Attendance screens", () => {
   it("starts a session, polls its returned code, and ends that session", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const offeringId = getDemoState().offerings[1]?.id;
+    const offeringId = getDemoState().offerings[0]?.id;
     const venueId = "3f2b8c1e-5a7d-4c1b-9e2a-8d6f4a1b7c90";
     if (!offeringId) throw new Error("The mock API has no seeded offering.");
     const sessionId = "b9d3bc38-d5e3-4a6c-8a67-6e4e4130d176";
@@ -630,7 +680,7 @@ describe("Campus Attendance screens", () => {
     });
     expect(
       within(offeringSelect).getByRole("option", {
-        name: "CPE 305 · Computer Architecture",
+        name: "ENG 301 · Engineering Mathematics III",
       }),
     ).toBeInTheDocument();
     await user.selectOptions(offeringSelect, offeringId);
@@ -663,6 +713,7 @@ describe("Campus Attendance screens", () => {
       late_after_min: 17,
     } satisfies StartSessionRequest);
     expect(contentType).toBe("application/json");
+    expect(window.location.pathname).toBe("/lecturer/live");
     expect(window.location.search).toBe(
       `?sessionId=${encodeURIComponent(sessionId)}`,
     );
@@ -785,7 +836,7 @@ describe("Campus Attendance screens", () => {
       {
         label: "Lecturer",
         role: "lecturer",
-        heading: /Good morning, Dr\. Eze/,
+        heading: /Welcome, Dr\. Ngozi Eze/,
       },
       {
         label: "Department admin",
@@ -930,7 +981,7 @@ describe("Campus Attendance screens", () => {
       await screen.findByRole("button", { name: "Sign in as Lecturer" }),
     );
     expect(
-      await screen.findByRole("heading", { name: /Good morning, Dr\. Eze/ }),
+      await screen.findByRole("heading", { name: /Welcome, Dr\. Ngozi Eze/ }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Session reports" }));
     const amaraRow = await screen.findByRole("row", { name: /Amara Okafor/ });

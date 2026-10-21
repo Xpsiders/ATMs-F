@@ -1869,6 +1869,10 @@
   color: var(--muted);
   font-size: 9px;
 }
+.teaching-row > .text-button {
+  min-height: 44px;
+  flex: 0 0 auto;
+}
 .live-dashboard {
   background: var(--navy-950);
   color: #fff;
@@ -3043,7 +3047,7 @@
     width: 55px;
   }
   .teaching-row > .text-button {
-    margin-left: 63px;
+    margin-left: 0;
   }
   .report-stat-grid {
     grid-template-columns: repeat(2, 1fr);

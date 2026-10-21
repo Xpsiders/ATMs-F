@@ -366,7 +366,11 @@ export function App() {
         Skip to content
       </a>
       <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
-        <Link to="/" className="brand" aria-label="CampusCheck home">
+        <Link
+          to={DEMO_ROLE_ROUTES[role]}
+          className="brand"
+          aria-label="CampusCheck home"
+        >
           <span className="brand-mark">
             <Icon name="check" size={20} />
           </span>
@@ -686,7 +690,7 @@ export function App() {
                 path="/lecturer"
                 element={
                   <RoleGuard role={role} allowedRoles={["lecturer"]}>
-                    <LecturerTeaching />
+                    <LecturerTeaching user={currentUser} />
                   </RoleGuard>
                 }
               />
