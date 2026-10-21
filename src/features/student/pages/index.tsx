@@ -8,6 +8,7 @@ import { getCurrentPosition, GeoError } from "@/shared/lib/geo";
 import type {
   CheckInRequest,
   CheckInResponse,
+  DepartmentCatalogueResponse,
   LiveClass,
   LiveClassesResponse,
   RegistrationResponse,
@@ -893,9 +894,6 @@ export function FindClasses() {
   const [departmentId, setDepartmentId] = useState("");
   const [level, setLevel] = useState("");
   const [kind, setKind] = useState<SearchOfferingsQuery["kind"] | "">("");
-  const [departments, setDepartments] = useState<
-    { id: SearchOffering["department_id"]; name: SearchOffering["department_name"] }[]
-  >([]);
   const [registeringId, setRegisteringId] = useState("");
   const [mutationError, setMutationError] = useState("");
   const [mutationErrorId, setMutationErrorId] = useState("");
@@ -907,6 +905,15 @@ export function FindClasses() {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
+  const departments = useApiResource<DepartmentCatalogueResponse>(
+    "/departments?limit=200&offset=0",
+  );
+  const departmentOptions =
+    departments.data?.items.flatMap((department) =>
+      typeof department.name === "string"
+        ? [{ id: department.id, name: department.name }]
+        : [],
+    ) ?? [];
   const searchParams = new URLSearchParams({ q: debouncedQuery });
   if (departmentId) searchParams.set("department_id", departmentId);
   if (level) searchParams.set("level", level);
@@ -915,22 +922,6 @@ export function FindClasses() {
     `/offerings/search?${searchParams.toString()}`,
   );
   const results = search.data?.items ?? [];
-  useEffect(() => {
-    const offerings = search.data?.items;
-    if (!offerings?.length) return;
-    setDepartments((current) => {
-      const next = new Map(
-        current.map((department) => [department.id, department]),
-      );
-      offerings.forEach((item) =>
-        next.set(item.department_id, {
-          id: item.department_id,
-          name: item.department_name,
-        }),
-      );
-      return [...next.values()];
-    });
-  }, [search.data]);
 
   async function register(offering: SearchOffering) {
     setRegisteringId(offering.offering_id);
@@ -981,16 +972,15 @@ export function FindClasses() {
               className="filter-select"
               aria-label="Filter by department"
               value={departmentId}
+              disabled={departments.loading || departments.error !== ""}
               onChange={(event) => setDepartmentId(event.target.value)}
             >
               <option value="">All departments</option>
-              {departments.map((department) => {
-                return (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                );
-              })}
+              {departmentOptions.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -1036,6 +1026,12 @@ export function FindClasses() {
             Reset filters
           </button>
         </div>
+        {departments.error && (
+          <ApiErrorState
+            message={`Could not load departments: ${departments.error}`}
+            onRetry={departments.reload}
+          />
+        )}
         {search.loading ? (
           <p role="status">Searching classes…</p>
         ) : search.error ? (

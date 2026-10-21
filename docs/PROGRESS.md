@@ -142,3 +142,22 @@ server was started. Therefore the reported click-back-to-home behavior could not
 be reproduced visually here; the role route and per-offering navigation are
 covered by component tests. Different real lecturer accounts and their backend
 offering assignments remain unverified.
+
+## Student API screens follow-up
+
+Student Home, Find classes, My courses, and Attendance history are API-backed in
+real mode and use the mock API handlers only when mock mode is enabled. Class
+search's department filters now come from the generated `GET /departments`
+contract rather than the home-department-limited search result set. The mock
+handler supplies matching department options. The search contract still does
+not expose an offering-specific closed reason; the UI truthfully shows the
+generic “Registration is closed for this offering” explanation.
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 10 test files and 52 tests passed, including independent department filtering, closed-registration state, and existing student screen coverage. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.04 kB / 115.54 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+
+Real-backend behavior and browser viewport checks were not performed.

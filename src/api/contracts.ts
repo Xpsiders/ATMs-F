@@ -24,6 +24,8 @@ export type SearchOfferingsResponse =
 export type SearchOffering = SearchOfferingsResponse["items"][number];
 export type SearchOfferingsQuery =
   operations["searchOfferings"]["parameters"]["query"];
+export type DepartmentCatalogueResponse =
+  operations["listDepartments"]["responses"][200]["content"]["application/json"];
 export type RegistrationResponse =
   operations["registerForOffering"]["responses"][201]["content"]["application/json"];
 export type VenueListResponse =

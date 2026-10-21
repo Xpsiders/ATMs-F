@@ -12,6 +12,7 @@ import {
   getDemoSession,
   getDemoSessionCode,
   getDemoState,
+  listDemoDepartments,
   listDemoLiveClasses,
   listDemoPendingRegistrations,
   listDemoOfferings,
@@ -81,6 +82,11 @@ export const handlers = [
       return apiError(403, "not_a_lecturer", "This endpoint is for lecturers.");
     return HttpResponse.json(listDemoOfferings(account.name));
   }),
+  http.get(`${apiBaseUrl}/departments`, () =>
+    getMockSession()
+      ? HttpResponse.json(listDemoDepartments())
+      : apiError(401, "unauthorized", "Sign in is required."),
+  ),
   http.get(`${apiBaseUrl}/me/courses`, () =>
     getMockSession()?.role === "student"
       ? HttpResponse.json(listDemoStudentCourses())

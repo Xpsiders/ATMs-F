@@ -21,6 +21,7 @@ operations and payloads; frontend aliases are maintained in
 | `GET /me/courses` | Returns approved courses with session counts, attendance percentage, minimum threshold, and below-threshold boolean. |
 | `GET /me/attendance?offering_id={uuid}` | Returns per-session attendance status, classification, date, and optional override reason for one approved course. |
 | `GET /me/registrations` | Returns pending registration requests with course labels and created timestamp. |
+| `GET /departments` | Returns a paginated catalogue of departments. The generated catalogue item guarantees `id`; the UI uses `name` only when the backend includes it. |
 | `GET /offerings/search?q=...` | Returns typed offering/course identity, department, level, kind, registration mode, lecturers, and registration status flags. |
 | `POST /offerings/{id}/registrations` | Submits registration for open offerings or a request for approval-mode offerings; response includes approved/pending state. |
 | `POST /checkins` | Requires session ID, six-digit code, coordinates, and accuracy; returns `present` or `late`, roster/accuracy flags, and distance. |
@@ -62,6 +63,12 @@ search result types the registration mode and status flags, but does not include
 a backend-provided closed-registration reason. The UI therefore displays the
 contract-supported state ("Registration is closed for this offering") without
 claiming a more specific backend reason.
+
+Class-search department filters load their options from authenticated
+`GET /departments`, independently of search results. This is needed because
+`GET /offerings/search` defaults an unfiltered student query to their home
+department and level; deriving the filter options from those results would
+hide other departments before the student could select them.
 
 Session creation now uses `POST /sessions` and propagates its returned ID to
 code polling, session ending, report links, and print-sheet requests. Student

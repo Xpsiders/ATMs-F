@@ -13,9 +13,11 @@ import { App } from "./App";
 import { server } from "@/test/setup";
 import type {
   CurrentUser,
+  DepartmentCatalogueResponse,
   EndSessionResponse,
   LiveClassesResponse,
   OfferingsResponse,
+  SearchOfferingsResponse,
   SessionCodeResponse,
   StartSessionRequest,
   StartSessionResponse,
@@ -360,6 +362,104 @@ describe("Campus Attendance screens", () => {
     expect(
       screen.queryByRole("heading", { name: "Computer Architecture" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("loads department filters independently of the search result defaults", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const departmentId = "10000000-0000-4000-8000-000000000811";
+    const departments: DepartmentCatalogueResponse = {
+      items: [{ id: departmentId, name: "Backend Department" }],
+      limit: 1,
+      offset: 0,
+      has_more: false,
+    };
+    const offering: SearchOfferingsResponse["items"][number] = {
+      offering_id: "10000000-0000-4000-8000-000000000812",
+      course_id: "10000000-0000-4000-8000-000000000813",
+      course_code: "API 811",
+      course_title: "Backend Department Course",
+      department_id: departmentId,
+      department_name: "Backend Department",
+      level: 300,
+      kind: "departmental",
+      registration_mode: "open",
+      lecturers: ["Dr. API Lecturer"],
+      registration_status: "none",
+      is_registered: false,
+      is_pending: false,
+    };
+    const requestedDepartments: string[] = [];
+    server.use(
+      http.get(`${apiBaseUrl}/departments`, () =>
+        HttpResponse.json(departments),
+      ),
+      http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
+        const requestedDepartment =
+          new URL(request.url).searchParams.get("department_id") ?? "";
+        requestedDepartments.push(requestedDepartment);
+        return HttpResponse.json({
+          items: requestedDepartment === departmentId ? [offering] : [],
+          limit: 50,
+          offset: 0,
+          has_more: false,
+        } satisfies SearchOfferingsResponse);
+      }),
+    );
+    renderApp("/find-classes");
+
+    const departmentFilter = await screen.findByRole("combobox", {
+      name: "Filter by department",
+    });
+    await screen.findByRole("option", { name: "Backend Department" });
+    await user.selectOptions(departmentFilter, departmentId);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Backend Department Course",
+      }),
+    ).toBeInTheDocument();
+    expect(requestedDepartments).toContain(departmentId);
+  });
+
+  it("shows the backend closed-registration state with its disabled explanation", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const closedOffering: SearchOfferingsResponse["items"][number] = {
+      offering_id: "10000000-0000-4000-8000-000000000821",
+      course_id: "10000000-0000-4000-8000-000000000822",
+      course_code: "API 821",
+      course_title: "Closed Backend Offering",
+      department_id: "10000000-0000-4000-8000-000000000823",
+      department_name: "Backend Department",
+      level: 300,
+      kind: "departmental",
+      registration_mode: "closed",
+      lecturers: ["Dr. API Lecturer"],
+      registration_status: "none",
+      is_registered: false,
+      is_pending: false,
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/offerings/search`, () =>
+        HttpResponse.json({
+          items: [closedOffering],
+          limit: 50,
+          offset: 0,
+          has_more: false,
+        } satisfies SearchOfferingsResponse),
+      ),
+    );
+    renderApp("/find-classes");
+
+    const button = await screen.findByRole("button", {
+      name: "Registration closed",
+    });
+    expect(button).toBeDisabled();
+    expect(
+      screen.getByText("Registration is closed for this offering."),
+    ).toBeInTheDocument();
   });
 
   it("shows API-backed empty states for a student with no courses or classes", async () => {

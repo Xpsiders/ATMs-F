@@ -25,7 +25,7 @@ The one-click login controls select the role without storing the displayed passw
 | CSC 326 — Database Management | Computer Science / 300 | Core / seeded teaching-card fields are not defined | Lecturer teaching list and student schedule |
 | CSC 318 — Software Engineering | Computer Science / 300 | Core / seeded teaching-card fields are not defined | Lecturer teaching list and student schedule |
 
-The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. `GET /me/offerings` filters assignments by the signed-in demo lecturer; currently Dr. Ngozi Eze is assigned ENG 301. Student home, search, course cards, registration actions, timetable, attendance history, check-in, lecturer roster/report, scanner state, session fixed-code state, and print sheet use mock API handlers backed by the shared mock store. Real-mode student and lecturer offering screens call the API directly and do not read this store.
+The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. `GET /me/offerings` filters assignments by the signed-in demo lecturer; currently Dr. Ngozi Eze is assigned ENG 301. The mock `GET /departments` supplies department-filter options independently from search results, matching real API behavior. Student home, search, course cards, registration actions, timetable, attendance history, check-in, lecturer roster/report, scanner state, session fixed-code state, and print sheet use mock API handlers backed by the shared mock store. Real-mode student screens call the API directly and do not read this store.
 
 ## Session, students, attendance, scanners
 

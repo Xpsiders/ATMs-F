@@ -337,6 +337,21 @@ export function listDemoOfferings(
   };
 }
 
+export function listDemoDepartments(): components["schemas"]["PagedCatalogueItems"] {
+  const departments = [
+    ...new Set(demoState.offerings.map((offering) => offering.department)),
+  ].map((name) => ({
+    id: demoDepartmentId(name),
+    name,
+  }));
+  return {
+    items: departments,
+    limit: departments.length,
+    offset: 0,
+    has_more: false,
+  };
+}
+
 export function listDemoVenues(): VenueListResponse {
   return {
     items: structuredClone(DEMO_VENUES),
