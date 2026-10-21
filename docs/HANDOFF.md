@@ -9,6 +9,7 @@
 - Student routes are loaded from the student module in the entry bundle. Lecturer and admin feature modules are dynamically imported; the current production build emits separate feature chunks.
 - Student navigation is role-specific: student bottom tabs are rendered only for students; lecturer/admin use the mobile drawer.
 - The synced OpenAPI aliases and implemented auth, check-in, roster, report CSV and override requests have been reconciled with the contract. The lecturer start form uses `GET /me/offerings` and `GET /venues`, submits only the schema-shaped session options, and propagates the returned session ID to code polling and ending. Student check-in selects its session from `GET /me/live-classes`.
+- Startup and post-login routing now load `GET /me`, map the returned role to the user's workspace, and enforce route-level role guards that redirect unauthorized access to `/403`. The app bar and profile show the returned name, department ID, and level. The contract does not provide a human-readable department name.
 - The session-ID wiring task is complete; the final lint, typecheck, full test suite (39 tests), and production build passed. The real backend was not reachable during this session; exact build sizes and check output are in `PROGRESS.md`.
 - `pnpm sync:api` copies from `C:\Dev\ATMs\api\openapi.yaml` by default and generates `src/api/schema.d.ts`. Real API login and student claim require `VITE_INSTITUTION_ID`; see `API_ASSUMPTIONS.md`.
 - The design-reference directory is currently absent. Addendum artboards have not been provided.
@@ -23,8 +24,7 @@
 
 ## Next implementation order
 
-1. Route after login using the role returned by backend `GET /me` rather than the demo role/default.
-2. Replace seeded lecturer report data with backend responses.
-3. Add responsive-navigation tests only after the user's current deferral is lifted.
+1. Replace seeded lecturer report data with backend responses.
+2. Add responsive-navigation tests only after the user's current deferral is lifted.
 
 See `PROGRESS.md` for the screen-by-screen inventory and outstanding checks.

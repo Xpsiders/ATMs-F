@@ -13,12 +13,9 @@ import {
 import { z } from "zod";
 import type {
   ChangePasswordRequest,
-  ForgotPasswordRequest,
   LoginResponse,
-  PasswordCodeRequest,
-  ResetPasswordRequest,
+  LoginRequest,
   SignupClaimRequest,
-  SignupPasswordRequest,
   SignupVerifyRequest,
 } from "@/api/contracts";
 import { Icon } from "@/shared/ui/primitives";
@@ -27,7 +24,7 @@ export function Login({
   onLogin,
   onResetDemo,
 }: {
-  onLogin: (role?: DemoRole) => void;
+  onLogin: (role?: DemoRole) => void | Promise<void>;
   onResetDemo: () => void;
 }) {
   const [email, setEmail] = useState("");
@@ -45,15 +42,25 @@ export function Login({
           setMessage("Those demo credentials don't match an account.");
           return;
         }
-        onLogin(account.role);
+        await onLogin(account.role);
         return;
       }
+      const institutionId = import.meta.env.VITE_INSTITUTION_ID;
+      if (!institutionId) {
+        setMessage("Set VITE_INSTITUTION_ID to sign in with the API.");
+        return;
+      }
+      const payload: LoginRequest = {
+        institution_id: institutionId,
+        email,
+        password,
+      };
       const response = await apiRequest<LoginResponse>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(payload),
       });
       setAccessToken(response.access_token);
-      onLogin("student");
+      await onLogin();
     } catch (caught) {
       const code = caught instanceof ApiError ? caught.code : "unknown";
       setMessage(
@@ -162,9 +169,24 @@ export function Login({
                     className="button secondary-button"
                     type="button"
                     aria-label={`Sign in as ${DEMO_ROLE_LABELS[account.role]}`}
-                    onClick={() => {
+                    onClick={async () => {
                       const session = startMockSession(account.role);
-                      if (session) onLogin(session.role);
+                      if (!session) return;
+                      setMessage("");
+                      try {
+                        await onLogin(session.role);
+                      } catch (caught) {
+                        const code =
+                          caught instanceof ApiError ? caught.code : "unknown";
+                        setMessage(
+                          presentApiError(
+                            code,
+                            caught instanceof Error
+                              ? caught.message
+                              : undefined,
+                          ).message,
+                        );
+                      }
                     }}
                   >
                     Sign in <Icon name="arrow" size={15} />
@@ -253,7 +275,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
     if (step === "password") {
       const valid = z
         .string()
-        .min(10, "Use at least 10 characters.")
+        .min(12, "Use at least 12 characters.")
         .refine(
           (value) => value.toLowerCase() !== email.toLowerCase(),
           "Your password cannot be the same as your email.",
@@ -264,50 +286,69 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
         return;
       }
     }
+    if (
+      !isMock &&
+      (type === "forgot" || type === "reset" || type === "verify")
+    ) {
+      setMessage(
+        "This flow is not available in the current API contract. Please contact your institution administrator.",
+      );
+      return;
+    }
     setPending(true);
     try {
       if (!isMock) {
-        let endpoint: string;
+        let endpoint: string | null = null;
         let payload:
           | SignupClaimRequest
           | SignupVerifyRequest
-          | SignupPasswordRequest
-          | ForgotPasswordRequest
-          | PasswordCodeRequest
-          | ResetPasswordRequest
-          | ChangePasswordRequest;
+          | ChangePasswordRequest
+          | null = null;
         if (type === "signup" && step === "identity") {
-          endpoint = "/auth/signup/claim";
-          payload = { matric, email };
-        } else if (
-          (type === "signup" || type === "verify") &&
-          step === "code"
-        ) {
-          endpoint = "/auth/signup/verify";
-          payload = { email, code };
-        } else if (
-          (type === "signup" || type === "verify") &&
-          step === "password"
-        ) {
-          endpoint = "/auth/signup/password";
-          payload = { email, password };
-        } else if (type === "forgot") {
-          endpoint = "/auth/password/forgot";
-          payload = { email };
-        } else if (type === "reset" && step === "code") {
-          endpoint = "/auth/password/verify";
-          payload = { email, code };
-        } else if (type === "reset") {
-          endpoint = "/auth/password/reset";
-          payload = { email, code, password };
-        } else {
+          const institutionId = import.meta.env.VITE_INSTITUTION_ID;
+          if (!institutionId) {
+            setMessage("Set VITE_INSTITUTION_ID to claim an account.");
+            return;
+          }
+          endpoint = "/auth/signup-claim";
+          payload = {
+            institution_id: institutionId,
+            matric_no: matric,
+            email,
+          };
+        } else if (type === "signup" && step === "password") {
+          const institutionId = import.meta.env.VITE_INSTITUTION_ID;
+          if (!institutionId) {
+            setMessage("Set VITE_INSTITUTION_ID to verify your account.");
+            return;
+          }
+          endpoint = "/auth/verify-email";
+          payload = {
+            institution_id: institutionId,
+            matric_no: matric,
+            code,
+            password,
+          };
+        } else if (type === "change") {
           endpoint = "/auth/password/change";
-          payload = { current_password: currentPassword, password };
+          payload = {
+            current_password: currentPassword,
+            new_password: password,
+          };
+        } else if (type === "signup" && step === "code") {
+          endpoint = null;
+        } else {
+          setMessage(
+            "This flow is not available in the current API contract.",
+          );
+          return;
         }
-        await apiRequest<unknown>(endpoint, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
+        if (endpoint && payload) {
+          await apiRequest<unknown>(endpoint, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+        }
       }
       if (type === "signup" && step === "identity") {
         setNeutralClaimNotice(true);
@@ -487,7 +528,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
               />
               <div className="password-rules">
                 <b>Password requirements</b>
-                <span>At least 10 characters</span>
+                <span>At least 12 characters</span>
                 <span>Must not be the same as your email</span>
               </div>
             </>

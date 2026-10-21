@@ -18,6 +18,8 @@ export type EndSessionResponse =
   operations["endSession"]["responses"][200]["content"]["application/json"];
 export type LoginResponse =
   operations["login"]["responses"][200]["content"]["application/json"];
+export type CurrentUser =
+  operations["getCurrentUser"]["responses"][200]["content"]["application/json"];
 export type CheckInRequest =
   operations["createWebCheckin"]["requestBody"]["content"]["application/json"];
 export type CheckInResponse =

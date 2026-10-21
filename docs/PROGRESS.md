@@ -10,10 +10,10 @@ The approved design-reference screenshots are absent from `docs/design-reference
 
 | Area | Screen / flow from the spec or addendum | Status | Evidence / remaining work |
 |---|---|---|---|
-| App | Authenticated app shell, app bar, theme selector, online/offline banner | Done | Shared shell renders navigation, theme selection and network state. Backend-derived identity/permissions are not available in the draft contract. |
+| App | Authenticated app shell, app bar, theme selector, online/offline banner | Done | Shared shell renders navigation, theme selection, network state, and the signed-in name, department ID, and level from `GET /me`. The API exposes a department ID, not a human-readable department name. |
 | App | Student navigation (phone bottom tabs, laptop top nav) | Done | Student-only mobile tab bar and laptop nav render; active route is indicated. |
 | App | Lecturer/admin navigation (drawer and collapsed rail) | Placeholder | Drawer/rail styling exists, but the responsive behavior has not been verified against the specified 375/768/1280 breakpoints. Responsive-navigation tests are intentionally deferred by user request. |
-| App | Role guards, route error boundary, unauthorized/403 and not-found screens | Placeholder | 403/not-found text routes exist, but role routing/guards and an error boundary are not wired to the backend identity yet. |
+| App | Role guards, route error boundary, unauthorized/403 and not-found screens | Partial | Startup and post-login routing use the role returned by `GET /me`; student, lecturer, and admin routes enforce role guards and redirect to the existing 403 page with a link to the user's home. The global route error boundary remains unimplemented. |
 | Auth | Login and logout | Done | Real API login path and mock login work. Mock refresh returns 401 without a session; demo panel offers one-click student, lecturer, department-admin, institution-admin login and reset/logout. Tests cover role dashboards and logout. |
 | Auth | Signup / claim student account | Placeholder | Real mode calls the contract's claim endpoint and requires `VITE_INSTITUTION_ID`; the mock form still advances without a mock claim mutation. |
 | Auth | Verify email / one-time code | Placeholder | Real mode submits code and password together to the contract's verify-email endpoint; mock mode does not validate a code or verify an account. |
@@ -29,7 +29,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Check-in offline/error/lockout states | Done | Offline explanation and centralized error presentation render; scenario selection exercises mapped errors in development. |
 | Student | Attendance history | Done | Mock history displays shared attendance for the signed-in demo student and filters by course; live API integration remains unavailable. |
 | Student | Attendance disputes | Placeholder | Informational page only; no dispute submission or status tracking. |
-| Student | Student profile / privacy details | Placeholder | Informational page only; no profile edit or complete account-backed data flow. |
+| Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
 | Lecturer | Offerings / teaching list | Placeholder | The teaching list is still static, but its start links open the working session form. |
 | Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
 | Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for `GET /sessions/{id}/code` polling and `POST /sessions/{id}/end`; errors display the API code/message. The roster and aggregate counts are still seeded. |
@@ -67,7 +67,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | No offline mutation queue/retry | Done | Check-in is disabled offline and mutations are not queued; real airplane-mode behavior remains a manual check. |
 | Shared mock store and reset | Done | Shared state covers check-in, enrollment, history, lecturer roster/report, overrides, scanner/session state and print roster; reset restores fixture state. |
 | Route-level code splitting and student initial bundle target | Done | Initial student JS **112.26 kB gzip**, below the ~200 kB target; lecturer and admin are separate lazy chunks (**5.83 kB** and **1.05 kB gzip**). |
-| API contract, generated types and centralized errors | Partial | Session creation, code polling, session ending, lecturer offerings/venues, and student live-class selection use generated types from the synced backend contract. The generic catalogue schema does not specify course code/title properties, so the UI safely reads optional code/title values when the API provides them. Forgot/reset-password and standalone verification endpoints are not in the contract and explicitly report unsupported in real mode. Real-backend compatibility is unverified. |
+| API contract, generated types and centralized errors | Partial | Session creation, code polling, session ending, lecturer offerings/venues, student live-class selection, and `GET /me` use generated types from the synced backend contract. The generic catalogue schema does not specify course code/title properties, so the UI safely reads optional code/title values when the API provides them. The profile contract exposes department IDs rather than department names. Forgot/reset-password and standalone verification endpoints are not in the contract and explicitly report unsupported in real mode. Real-backend compatibility is unverified. |
 | CI and documentation coverage | Done | CI and baseline docs exist; this inventory calls out incomplete product screens. |
 
 ## Validation and latest measured output
@@ -83,6 +83,17 @@ Validation for the session form contract-alignment task (commands run from the r
 | `pnpm test` | Passed; 10 test files and 40 tests passed, including exact JSON request body, field errors, and returned session ID polling/end assertions. |
 | `pnpm build` | Passed; Vite transformed 307 modules. JS chunks were **376.66 kB / 113.41 kB gzip**, **24.16 kB / 7.10 kB gzip**, and **2.47 kB / 1.05 kB gzip** (total **403.29 kB / 121.56 kB gzip**); CSS **58.25 kB / 12.59 kB gzip**. |
 
-Current task complete: aligned the lecturer session form to the synced contract, improved course labels and field errors, removed the role switcher, and verified the returned-ID session lifecycle. Remaining platform limitations include 375/768/1280 automated viewport coverage, real-backend compatibility, and real-device behavior for GPS, Wake Lock, fullscreen, airplane mode, printing, and power loss. Recommended next task: route after login from backend `GET /me` role data.
+Previous task complete: aligned the lecturer session form to the synced contract, improved course labels and field errors, removed the role switcher, and verified the returned-ID session lifecycle. Recommended next task: replace seeded lecturer report data with backend responses.
+
+## Role-based identity validation
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | Passed with 0 errors and 6 existing Fast Refresh warnings in `shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 10 test files and 43 tests passed, including `/me` role routing, 403 guard redirects, and profile identity display. |
+| `pnpm build` | Passed; Vite transformed 308 modules. JS chunks were **380.52 kB / 114.28 kB gzip**, **24.16 kB / 7.10 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **59.33 kB / 12.80 kB gzip**. |
+
+Current task complete: the app restores the session then loads `GET /me`, uses that response to choose the role workspace after login and page load, guards role-specific routes with a 403 redirect, and displays API-provided name, department ID, and level in the app bar and profile. The API does not provide a human-readable department name. Real-backend behavior remains unverified.
 
 The following are not established yet: 375/768/1280 automated viewport coverage, real-backend compatibility, and real-device behavior for GPS, Wake Lock, fullscreen, airplane mode, printing, and power loss.

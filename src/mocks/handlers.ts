@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import type {
   CheckInRequest,
+  CurrentUser,
   StartSessionRequest,
 } from "@/api/contracts";
 import { getMockSession } from "@/mocks/auth";
@@ -28,6 +29,45 @@ function apiError(status: number, code: string, message: string) {
 }
 
 export const handlers = [
+  http.get(`${apiBaseUrl}/me`, () => {
+    const account = getMockSession();
+    if (!account) return apiError(401, "unauthorized", "Sign in is required.");
+    const roleByDemoRole = {
+      student: "student",
+      lecturer: "lecturer",
+      "department-admin": "department_admin",
+      "institution-admin": "institution_admin",
+    } as const;
+    const scopeType =
+      account.role === "institution-admin" ? "institution" : "department";
+    const departmentId =
+      account.role === "student"
+        ? "10000000-0000-4000-8000-000000000003"
+        : "10000000-0000-4000-8000-000000000004";
+    const userIdByRole = {
+      student: "20000000-0000-4000-8000-000000000001",
+      lecturer: "20000000-0000-4000-8000-000000000002",
+      "department-admin": "20000000-0000-4000-8000-000000000003",
+      "institution-admin": "20000000-0000-4000-8000-000000000004",
+    } as const;
+    const profile: CurrentUser = {
+      id: userIdByRole[account.role],
+      name: account.name,
+      email: account.email,
+      status: "active",
+      must_change_password: false,
+      roles: [
+        {
+          role: roleByDemoRole[account.role],
+          scope_type: scopeType,
+          scope_id: scopeType === "institution" ? null : departmentId,
+          ...(scopeType === "department" ? { department_id: departmentId } : {}),
+          ...(account.role === "student" ? { level: 300 } : {}),
+        },
+      ],
+    };
+    return HttpResponse.json(profile);
+  }),
   http.get(`${apiBaseUrl}/me/offerings`, () =>
     HttpResponse.json(listDemoOfferings()),
   ),

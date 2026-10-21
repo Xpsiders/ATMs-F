@@ -1,6 +1,15 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Link,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -8,9 +17,12 @@ import {
 } from "react-router-dom";
 import {
   clearAuth,
+  apiRequest,
   restoreSession,
   setUnauthorizedHandler,
 } from "@/shared/lib/apiClient";
+import { ApiError, formatApiError } from "@/api/errors";
+import type { CurrentUser } from "@/api/contracts";
 import { Icon, NAV, NavLink, SimplePage, Splash } from "@/shared/ui/primitives";
 import { AuthFlow, Login } from "@/features/auth/pages";
 import {
@@ -24,11 +36,16 @@ import {
   clearMockSession,
   DEMO_ROLE_LABELS,
   DEMO_ROLE_ROUTES,
-  getMockSession,
   isMockMode,
   type DemoRole,
 } from "@/mocks/auth";
 import { resetDemoData } from "@/mocks/store";
+import { formatInitials } from "@/shared/lib/format";
+import {
+  getAcademicLevel,
+  getDepartmentId,
+  getWorkspaceRole,
+} from "@/app/identity";
 import "@/app/app.css";
 
 const LecturerTeaching = lazy(() =>
@@ -62,6 +79,91 @@ const AdminImportStudents = lazy(() =>
   })),
 );
 
+function RoleGuard({
+  role,
+  allowedRoles,
+  children,
+}: {
+  role: DemoRole | null;
+  allowedRoles: readonly DemoRole[];
+  children: React.ReactNode;
+}) {
+  return role && allowedRoles.includes(role) ? (
+    children
+  ) : (
+    <Navigate to={role ? "/403" : "/login"} replace />
+  );
+}
+
+function AccessDenied({ home }: { home: string }) {
+  return (
+    <div className="page-stack">
+      <SimplePage
+        title="You don't have access to this page"
+        subtitle="Your account doesn't have permission to view this workspace."
+        icon="profile"
+      />
+      <Link className="button primary-button access-home-button" to={home}>
+        Go to your home
+      </Link>
+    </div>
+  );
+}
+
+function UserProfilePage({
+  user,
+  role,
+}: {
+  user: CurrentUser;
+  role: DemoRole;
+}) {
+  const departmentId = getDepartmentId(user);
+  const level = getAcademicLevel(user);
+  return (
+    <div className="page-stack">
+      <SimplePage
+        title={user.name}
+        subtitle={user.email}
+        icon="profile"
+      />
+      <section className="panel account-profile" aria-label="Profile details">
+        <h2>Account details</h2>
+        <dl>
+          <div>
+            <dt>Full name</dt>
+            <dd>{user.name}</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>{user.email}</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd>{DEMO_ROLE_LABELS[role]}</dd>
+          </div>
+          <div>
+            <dt>Department ID</dt>
+            <dd>{departmentId ?? "Not provided by the API"}</dd>
+          </div>
+          <div>
+            <dt>Level</dt>
+            <dd>{level === undefined ? "Not provided by the API" : level}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+const authPaths = [
+  "/login",
+  "/signup",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+  "/change-password",
+];
+
 export function App() {
   const mockMode = isMockMode();
   const [authReady, setAuthReady] = useState(false);
@@ -73,57 +175,65 @@ export function App() {
       return "auto";
     }
   });
-  const [role, setRole] = useState<DemoRole>(
-    () => getMockSession()?.role ?? "student",
-  );
+  const [role, setRole] = useState<DemoRole | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [profileError, setProfileError] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
   const location = useLocation();
   const navigate = useNavigate();
   const initialRoute = useRef(location.pathname);
+  const loadCurrentUser = useCallback(async () => {
+    const user = await apiRequest<CurrentUser>("/me");
+    const workspaceRole = getWorkspaceRole(user);
+    if (!workspaceRole)
+      throw new Error("Your account has no supported CampusCheck role.");
+    setCurrentUser(user);
+    setRole(workspaceRole);
+    return workspaceRole;
+  }, []);
   useEffect(() => {
-    if (
-      [
-        "/login",
-        "/signup",
-        "/verify-email",
-        "/forgot-password",
-        "/reset-password",
-        "/change-password",
-      ].includes(initialRoute.current)
-    ) {
-      setAuthReady(true);
-      return;
-    }
     let cancelled = false;
-    void restoreSession()
-      .then((restored) => {
+    void (async () => {
+      try {
+        const restored = await restoreSession();
         if (cancelled) return;
         if (!restored) {
-          navigate("/login", {
-            replace: true,
-            state: { from: initialRoute.current },
-          });
+          if (!authPaths.includes(initialRoute.current))
+            navigate("/login", {
+              replace: true,
+              state: { from: initialRoute.current },
+            });
           return;
         }
-        const session = getMockSession();
-        if (session) setRole(session.role);
-      })
-      .finally(() => {
+        const workspaceRole = await loadCurrentUser();
+        if (
+          !cancelled &&
+          (initialRoute.current === "/" || initialRoute.current === "/login")
+        )
+          navigate(DEMO_ROLE_ROUTES[workspaceRole], { replace: true });
+      } catch (caught) {
+        if (!(caught instanceof ApiError) || caught.status !== 401)
+          setProfileError(formatApiError(caught));
+      } finally {
         if (!cancelled) setAuthReady(true);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [mockMode, navigate]);
+  }, [loadCurrentUser, mockMode, navigate]);
   useEffect(() => {
-    setUnauthorizedHandler(() =>
+    setUnauthorizedHandler(() => {
+      setCurrentUser(null);
+      setRole(null);
+      setProfileError("");
       navigate("/login", {
         replace: true,
         state: { from: location.pathname },
-      }),
-    );
+      });
+    });
     return () => setUnauthorizedHandler(undefined);
   }, [location.pathname, navigate]);
   useEffect(() => {
@@ -172,46 +282,50 @@ export function App() {
       "Campus Attendance"
     );
   }, [activePath]);
-  const authPaths = [
-    "/login",
-    "/signup",
-    "/verify-email",
-    "/forgot-password",
-    "/reset-password",
-    "/change-password",
-  ];
   const isAuth = authPaths.includes(activePath);
   if (!authReady) return <Splash />;
-  if (
-    activePath === "/login" ||
-    (mockMode && !getMockSession() && !isAuth)
-  )
+  if (profileError && (!isAuth || activePath === "/login"))
     return (
-      <Login
-        onLogin={(accountRole = "student") => {
-          const state = location.state;
-          const intended =
-            typeof state === "object" &&
-            state !== null &&
-            "from" in state &&
-            typeof state.from === "string"
-              ? state.from
-              : "/";
-          const activeRole = getMockSession()?.role ?? accountRole;
-          setRole(activeRole);
-          navigate(mockMode ? DEMO_ROLE_ROUTES[activeRole] : intended, {
-            replace: true,
-          });
-        }}
-        onResetDemo={() => {
-          clearMockSession();
-          resetDemoData();
-          clearAuth();
-          navigate("/login", { replace: true });
-        }}
-      />
+      <main className="identity-error-screen">
+        <div className="panel" role="alert">
+          <h1>Could not load your account</h1>
+          <p>{profileError}</p>
+          <button
+            className="button primary-button"
+            onClick={() => {
+              setAuthReady(false);
+              setProfileError("");
+              void loadCurrentUser()
+                .then((workspaceRole) => {
+                  if (initialRoute.current === "/")
+                    navigate(DEMO_ROLE_ROUTES[workspaceRole], {
+                      replace: true,
+                    });
+                })
+                .catch((caught: unknown) =>
+                  setProfileError(formatApiError(caught)),
+                )
+                .finally(() => setAuthReady(true));
+            }}
+          >
+            Retry
+          </button>
+          <button
+            className="text-button"
+            onClick={() => {
+              setCurrentUser(null);
+              setRole(null);
+              setProfileError("");
+              clearAuth();
+              navigate("/login", { replace: true });
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </main>
     );
-  if (isAuth) {
+  if (isAuth && activePath !== "/login") {
     const type =
       activePath === "/signup"
         ? "signup"
@@ -224,6 +338,28 @@ export function App() {
               : "change";
     return <AuthFlow type={type} />;
   }
+  if (role === null || currentUser === null)
+    return (
+      <Login
+        onLogin={async () => {
+          setAuthReady(false);
+          try {
+            const workspaceRole = await loadCurrentUser();
+            navigate(DEMO_ROLE_ROUTES[workspaceRole], { replace: true });
+          } finally {
+            setAuthReady(true);
+          }
+        }}
+        onResetDemo={() => {
+          clearMockSession();
+          resetDemoData();
+          clearAuth();
+          navigate("/login", { replace: true });
+        }}
+      />
+    );
+  if (activePath === "/login")
+    return <Navigate to={DEMO_ROLE_ROUTES[role]} replace />;
   return (
     <div className="app-shell" data-role={role}>
       <a className="skip-link" href="#main-content">
@@ -328,13 +464,15 @@ export function App() {
               if (mockMode) {
                 clearMockSession();
               }
+              setCurrentUser(null);
+              setRole(null);
               clearAuth();
               navigate("/login");
             }}
           >
-            <span className="avatar">AO</span>
+            <span className="avatar">{formatInitials(currentUser.name)}</span>
             <span className="user-meta">
-              <b>{getMockSession()?.name ?? "Amara Okafor"}</b>
+              <b>{currentUser.name}</b>
               <small>{DEMO_ROLE_LABELS[role]}</small>
             </span>
             <Icon name="logout" size={17} />
@@ -431,7 +569,19 @@ export function App() {
               <Icon name="bell" />
               <span />
             </button>
-            <span className="top-avatar">AO</span>
+            <div className="topbar-identity" aria-label="Signed-in user">
+              <b>{currentUser.name}</b>
+              <small>
+                {getDepartmentId(currentUser) ?? "Department ID not provided"}
+                {" · "}
+                {getAcademicLevel(currentUser) === undefined
+                  ? "Level not provided"
+                  : `Level ${getAcademicLevel(currentUser)}`}
+              </small>
+            </div>
+            <span className="top-avatar">
+              {formatInitials(currentUser.name)}
+            </span>
           </div>
         </header>
         <div
@@ -452,7 +602,14 @@ export function App() {
         <main id="main-content" className="main-content" tabIndex={-1}>
           <Suspense fallback={<Splash />}>
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route
+                path="/"
+                element={
+                  <RoleGuard role={role} allowedRoles={["student"]}>
+                    <Dashboard />
+                  </RoleGuard>
+                }
+              />
               <Route path="/signup" element={<AuthFlow type="signup" />} />
               <Route
                 path="/verify-email"
@@ -473,72 +630,137 @@ export function App() {
               <Route
                 path="/check-in"
                 element={
-                  <CheckIn onResult={setNotice} online={online} />
+                  <RoleGuard role={role} allowedRoles={["student"]}>
+                    <CheckIn onResult={setNotice} online={online} />
+                  </RoleGuard>
                 }
               />
-              <Route path="/find-classes" element={<FindClasses />} />
-              <Route path="/courses" element={<Courses />} />
-              <Route path="/history" element={<History />} />
+              <Route
+                path="/find-classes"
+                element={
+                  <RoleGuard role={role} allowedRoles={["student"]}>
+                    <FindClasses />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/courses"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={[
+                      "student",
+                      "department-admin",
+                      "institution-admin",
+                    ]}
+                  >
+                    <Courses />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/history"
+                element={
+                  <RoleGuard role={role} allowedRoles={["student"]}>
+                    <History />
+                  </RoleGuard>
+                }
+              />
               <Route
                 path="/disputes"
                 element={
-                  <SimplePage
-                    title="Attendance disputes"
-                    subtitle="Ask us to review an attendance record."
-                    icon="dispute"
-                  />
+                  <RoleGuard role={role} allowedRoles={["student"]}>
+                    <SimplePage
+                      title="Attendance disputes"
+                      subtitle="Ask us to review an attendance record."
+                      icon="dispute"
+                    />
+                  </RoleGuard>
                 }
               />
               <Route
                 path="/profile"
+                element={<UserProfilePage user={currentUser} role={role} />}
+              />
+              <Route
+                path="/lecturer"
                 element={
-                  <SimplePage
-                    title="My profile"
-                    subtitle="Your details are managed by your department."
-                    icon="profile"
-                  />
+                  <RoleGuard role={role} allowedRoles={["lecturer"]}>
+                    <LecturerTeaching />
+                  </RoleGuard>
                 }
               />
-              <Route path="/lecturer" element={<LecturerTeaching />} />
               <Route
                 path="/lecturer/start"
-                element={<LecturerStartSession />}
+                element={
+                  <RoleGuard role={role} allowedRoles={["lecturer"]}>
+                    <LecturerStartSession />
+                  </RoleGuard>
+                }
               />
-              <Route path="/lecturer/live" element={<LecturerLiveSession />} />
-              <Route path="/lecturer/report" element={<LecturerReport />} />
+              <Route
+                path="/lecturer/live"
+                element={
+                  <RoleGuard role={role} allowedRoles={["lecturer"]}>
+                    <LecturerLiveSession />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/lecturer/report"
+                element={
+                  <RoleGuard role={role} allowedRoles={["lecturer"]}>
+                    <LecturerReport />
+                  </RoleGuard>
+                }
+              />
               <Route
                 path="/lecturer/print-sheet"
-                element={<LecturerPrintSheet />}
+                element={
+                  <RoleGuard role={role} allowedRoles={["lecturer"]}>
+                    <LecturerPrintSheet />
+                  </RoleGuard>
+                }
               />
               <Route
                 path="/admin"
                 element={
-                  <SimplePage
-                    title="Department dashboard"
-                    subtitle="A clear view of attendance across your department."
-                    icon="report"
-                  />
+                  <RoleGuard role={role} allowedRoles={["department-admin"]}>
+                    <SimplePage
+                      title="Department dashboard"
+                      subtitle="A clear view of attendance across your department."
+                      icon="report"
+                    />
+                  </RoleGuard>
                 }
               />
               <Route
                 path="/admin/institution"
                 element={
-                  <SimplePage
-                    title="Institution dashboard"
-                    subtitle="Institution-wide attendance, offerings and academic operations."
-                    icon="report"
-                  />
+                  <RoleGuard role={role} allowedRoles={["institution-admin"]}>
+                    <SimplePage
+                      title="Institution dashboard"
+                      subtitle="Institution-wide attendance, offerings and academic operations."
+                      icon="report"
+                    />
+                  </RoleGuard>
                 }
               />
-              <Route path="/admin/import" element={<AdminImportStudents />} />
+              <Route
+                path="/admin/import"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminImportStudents />
+                  </RoleGuard>
+                }
+              />
               <Route
                 path="/403"
                 element={
-                  <SimplePage
-                    title="You don't have access to this page"
-                    subtitle="Your account doesn't have permission to view this workspace."
-                    icon="profile"
-                  />
+                  <AccessDenied home={DEMO_ROLE_ROUTES[role]} />
                 }
               />
               <Route

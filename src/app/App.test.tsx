@@ -12,6 +12,7 @@ import { http, HttpResponse } from "msw";
 import { App } from "./App";
 import { server } from "@/test/setup";
 import type {
+  CurrentUser,
   EndSessionResponse,
   SessionCodeResponse,
   StartSessionRequest,
@@ -21,6 +22,7 @@ import {
   clearMockSession,
   getMockSession,
   startMockSession,
+  type DemoRole,
 } from "@/mocks/auth";
 import {
   getDemoState,
@@ -50,8 +52,18 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, "wakeLock");
 });
 
-function renderApp(path = "/", withMockSession = true) {
-  if (withMockSession && !startMockSession("student"))
+function renderApp(
+  path = "/",
+  withMockSession = true,
+  role: DemoRole = path.startsWith("/lecturer")
+    ? "lecturer"
+    : path === "/admin/institution"
+      ? "institution-admin"
+      : path.startsWith("/admin")
+        ? "department-admin"
+        : "student",
+) {
+  if (withMockSession && !startMockSession(role))
     throw new Error("Mock mode is required for authenticated screen tests.");
   window.history.pushState({}, "", path);
   return render(
@@ -297,7 +309,7 @@ describe("Campus Attendance screens", () => {
         return HttpResponse.json(session satisfies EndSessionResponse);
       }),
     );
-    renderApp("/lecturer/start");
+    renderApp("/lecturer/start", true, "lecturer");
     await waitFor(
       () =>
         expect(screen.getByRole("main")).toHaveTextContent(
@@ -409,8 +421,9 @@ describe("Campus Attendance screens", () => {
     const createdSession = getDemoState().sessions.at(-1);
     if (!createdSession)
       throw new Error("The mock API did not create an attendance session.");
+    await user.click(screen.getByRole("button", { name: "Log out" }));
     await user.click(
-      screen.getByRole("link", { name: "CampusCheck home" }),
+      await screen.findByRole("button", { name: "Sign in as Student" }),
     );
     await user.click(await screen.findByRole("link", { name: "Check in" }));
     await user.selectOptions(
@@ -511,6 +524,77 @@ describe("Campus Attendance screens", () => {
     expect(sessionStorage.getItem("campuscheck-mock-role")).toBeNull();
   });
 
+  it("routes after login using the role returned by GET /me", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const profile: CurrentUser = {
+      id: "20000000-0000-4000-8000-000000000009",
+      name: "Morgan Admin",
+      email: "morgan@example.test",
+      status: "active",
+      must_change_password: false,
+      roles: [
+        {
+          role: "institution_admin",
+          scope_type: "institution",
+          scope_id: null,
+        },
+      ],
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me`, () => HttpResponse.json(profile)),
+    );
+    renderApp("/", false);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Sign in as Student" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Institution dashboard" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".app-shell")).toHaveAttribute(
+      "data-role",
+      "institution-admin",
+    );
+    expect(screen.getByLabelText("Signed-in user")).toHaveTextContent(
+      "Morgan Admin",
+    );
+  });
+
+  it("redirects a user without the required role to 403 and their home", async () => {
+    const user = userEvent.setup();
+    renderApp("/lecturer", true, "student");
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "You don't have access to this page",
+      }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Go to your home" }));
+    expect(
+      await screen.findByRole("heading", { name: /Good morning, Amara/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the GET /me name, department ID, and level in app bar and profile", async () => {
+    renderApp("/profile");
+
+    expect(
+      await screen.findByRole("heading", { name: "Amara Okafor" }),
+    ).toBeInTheDocument();
+    const identity = screen.getByLabelText("Signed-in user");
+    expect(identity).toHaveTextContent("Amara Okafor");
+    expect(identity).toHaveTextContent(
+      "10000000-0000-4000-8000-000000000003",
+    );
+    expect(identity).toHaveTextContent("Level 300");
+    const details = screen.getByRole("region", { name: "Profile details" });
+    expect(details).toHaveTextContent("Department ID");
+    expect(details).toHaveTextContent("Level");
+    expect(details).toHaveTextContent("300");
+  });
+
   it("shares check-ins and lecturer overrides across roles and resets demo data", async () => {
     clearAmaraCheckIn();
     const user = userEvent.setup();
@@ -532,6 +616,9 @@ describe("Campus Attendance screens", () => {
     await user.click(
       await screen.findByRole("button", { name: "Sign in as Lecturer" }),
     );
+    expect(
+      await screen.findByRole("heading", { name: /Good morning, Dr\. Eze/ }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Session reports" }));
     const amaraRow = await screen.findByRole("row", { name: /Amara Okafor/ });
     const recordedTime = getDemoState().attendance.find(
@@ -556,6 +643,9 @@ describe("Campus Attendance screens", () => {
     await user.click(
       await screen.findByRole("button", { name: "Sign in as Student" }),
     );
+    expect(
+      await screen.findByRole("heading", { name: /Good morning, Amara/ }),
+    ).toBeInTheDocument();
     await user.click(screen.getAllByRole("link", { name: "Attendance" })[0]!);
     expect(
       await screen.findByRole("heading", { name: "Attendance history" }),
