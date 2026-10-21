@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRequest } from "@/shared/lib/apiClient";
 import { ApiError, formatApiError } from "@/api/errors";
 import { getDeviceHash } from "@/shared/lib/deviceHash";
@@ -10,29 +10,46 @@ import type {
   CheckInResponse,
   LiveClass,
   LiveClassesResponse,
+  RegistrationResponse,
+  SearchOffering,
+  SearchOfferingsQuery,
+  SearchOfferingsResponse,
+  StudentAttendanceResponse,
+  StudentCoursesResponse,
+  StudentTimetableResponse,
 } from "@/api/contracts";
-import { getMockSession, isMockMode } from "@/mocks/auth";
-import { updateDemoState } from "@/mocks/store";
-import { useDemoState } from "@/mocks/useDemoState";
+import { isMockMode } from "@/mocks/auth";
+import { useApiResource } from "@/features/student/hooks/useApiResource";
 import {
   CHECKIN_ERRORS,
-  COURSES,
   Icon,
-  LIVE_CLASS,
   PageHeading,
 } from "@/shared/ui/primitives";
 
 export function Dashboard() {
+  const live = useApiResource<LiveClassesResponse>("/me/live-classes");
+  const timetable = useApiResource<StudentTimetableResponse>("/me/timetable");
+  const courses = useApiResource<StudentCoursesResponse>("/me/courses");
+  const now = new Date();
+  const currentMinutes = getCurrentCampusMinutes(now);
+  const laterToday =
+    timetable.data?.items.filter((item) => {
+      const [hours = "0", minutes = "0"] = item.starts_at.split(":");
+      const startsAt = Number(hours) * 60 + Number(minutes);
+      return startsAt > currentMinutes;
+    }) ?? [];
+
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow="MONDAY, 17 FEBRUARY 2025"
-        title={
-          <>
-            Good morning, Amara <span className="wave">✳</span>
-          </>
-        }
-        subtitle="A new week is a fresh chance to show up. Here's your day at a glance."
+        eyebrow={new Intl.DateTimeFormat(undefined, {
+          timeZone: "Africa/Lagos",
+          dateStyle: "full",
+        })
+          .format(now)
+          .toUpperCase()}
+        title="Your day at a glance"
+        subtitle="Your live classes, today's timetable, and attendance at a glance."
         action={
           <Link className="button primary-button" to="/check-in">
             <Icon name="pin" size={17} /> Check in to class
@@ -47,7 +64,8 @@ export function Dashboard() {
           <div>
             <span>Classes today</span>
             <strong>
-              04 <small>classes</small>
+              {timetable.loading ? "…" : (timetable.data?.items.length ?? 0)}{" "}
+              <small>classes</small>
             </strong>
           </div>
         </div>
@@ -56,9 +74,12 @@ export function Dashboard() {
             <Icon name="check" />
           </span>
           <div>
-            <span>Overall attendance</span>
+            <span>Courses below threshold</span>
             <strong>
-              82<small>%</small> <em className="trend">↑ 4%</em>
+              {courses.loading
+                ? "…"
+                : (courses.data?.items.filter((course) => course.below_threshold)
+                    .length ?? 0)}
             </strong>
           </div>
         </div>
@@ -67,9 +88,9 @@ export function Dashboard() {
             <Icon name="clock" />
           </span>
           <div>
-            <span>Next class starts in</span>
+            <span>Live classes</span>
             <strong>
-              12 <small>min</small>
+              {live.loading ? "…" : (live.data?.items.length ?? 0)}
             </strong>
           </div>
         </div>
@@ -78,109 +99,148 @@ export function Dashboard() {
         <section className="panel schedule-panel">
           <div className="panel-heading">
             <div>
-              <h2>Today's schedule</h2>
-              <p>
-                Monday, 17 February <span className="date-dot">·</span> 4
-                classes
-              </p>
+              <h2>Live now</h2>
+              <p>Classes currently open for check-in</p>
             </div>
-            <button className="text-button">
-              Full timetable <Icon name="arrow" size={15} />
-            </button>
           </div>
           <div className="schedule-list">
-            <div className="timeline-line" />
-            <ScheduleCard
-              live={true}
-              title={LIVE_CLASS.title}
-              code={LIVE_CLASS.code}
-              time="9:00 – 10:30 AM"
-              place={LIVE_CLASS.room}
-            />
-            <ScheduleCard
-              title="Database Management"
-              code="CSC 326"
-              time="11:00 AM – 12:30 PM"
-              place="ICT Building · Room 14"
-            />
-            <ScheduleCard
-              title="Software Engineering"
-              code="CSC 318"
-              time="1:00 – 2:30 PM"
-              place="New Science · LT 1"
-            />
+            {live.loading ? (
+              <p role="status">Loading live classes…</p>
+            ) : live.error ? (
+              <ApiErrorState message={live.error} onRetry={live.reload} />
+            ) : live.data?.items.length ? (
+              live.data.items.map((item) => (
+                <ScheduleCard
+                  key={item.session_id}
+                  live
+                  title={item.course_title}
+                  code={item.course_code}
+                  time={`${formatClock(item.started_at)} · ${item.venue_name}`}
+                  place={item.lecturer_name}
+                />
+              ))
+            ) : (
+              <p className="empty-state">No class is live right now</p>
+            )}
           </div>
         </section>
-        <section className="panel attendance-panel">
+        <section className="panel schedule-panel">
           <div className="panel-heading">
             <div>
-              <h2>Attendance snapshot</h2>
-              <p>You're doing well. Keep it up!</p>
-            </div>
-            <button
-              className="dots-button"
-              aria-label="More attendance options"
-            >
-              ···
-            </button>
-          </div>
-          <div className="overall-attendance">
-            <div className="attendance-ring">
-              <div>
-                <strong>82%</strong>
-                <span>overall</span>
-              </div>
-            </div>
-            <div className="ring-note">
-              <span className="ring-note-dot" />
-              <span>
-                Looking good!<small>You're above the 75% requirement.</small>
-              </span>
+              <h2>Later today</h2>
+              <p>Your approved classes on today's timetable</p>
             </div>
           </div>
+          {timetable.loading ? (
+            <p role="status">Loading today's timetable…</p>
+          ) : timetable.error ? (
+            <ApiErrorState message={timetable.error} onRetry={timetable.reload} />
+          ) : laterToday.length ? (
+            <div className="schedule-list">
+              {laterToday.map((item) => (
+                <ScheduleCard
+                  key={item.offering_id}
+                  title={item.course_title}
+                  code={item.course_code}
+                  time={`${formatClock(item.starts_at)} – ${formatClock(item.ends_at)}`}
+                  place={item.venue_name}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">Nothing scheduled today</p>
+          )}
+          <Link to="/courses" className="panel-link">
+            View my courses <Icon name="arrow" size={15} />
+          </Link>
+        </section>
+      </div>
+      <section className="panel attendance-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Attendance by course</h2>
+            <p>Progress against each course's minimum requirement</p>
+          </div>
+        </div>
+        {courses.loading ? (
+          <p role="status">Loading course attendance…</p>
+        ) : courses.error ? (
+          <ApiErrorState message={courses.error} onRetry={courses.reload} />
+        ) : courses.data?.items.length ? (
           <div className="course-progress">
-            {COURSES.map((course) => (
-              <div className="progress-row" key={course.code}>
+            {courses.data.items.map((course) => (
+              <div className="progress-row" key={course.offering_id}>
                 <div>
-                  <span>{course.title}</span>
-                  <b className={course.tone === "red" ? "below-threshold" : ""}>
-                    {course.percent}%
+                  <span>{course.course_code} · {course.course_title}</span>
+                  <b className={course.below_threshold ? "below-threshold" : ""}>
+                    {Math.round(course.attendance_percentage)}%
                   </b>
                 </div>
                 <div className="progress-track">
                   <span
-                    className={`progress-fill ${course.tone}`}
-                    style={{ width: `${course.percent}%` }}
+                    className={`progress-fill ${course.below_threshold ? "red" : "blue"}`}
+                    style={{ width: `${course.attendance_percentage}%` }}
                   />
                 </div>
-                {course.percent < 75 && (
+                {course.below_threshold && (
                   <small className="threshold-warning">
-                    <Icon name="dispute" size={13} /> Below the 75% attendance
-                    requirement
+                    <Icon name="dispute" size={13} /> Below the{" "}
+                    {course.minimum_attendance_percentage}% attendance requirement
                   </small>
                 )}
               </div>
             ))}
           </div>
-          <Link to="/courses" className="panel-link">
-            View all courses <Icon name="arrow" size={15} />
-          </Link>
-        </section>
-      </div>
-      <section className="quote-banner">
-        <div className="quote-mark">“</div>
-        <div>
-          <p>Small steps every day lead to big things.</p>
-          <span>Show up for your future.</span>
-        </div>
-        <div className="quote-art">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
+        ) : (
+          <StudentEmptyState />
+        )}
       </section>
+    </div>
+  );
+}
+
+function formatClock(value: string): string {
+  if (value.includes("T")) return formatTime(value);
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return `${Number(hours).toString().padStart(2, "0")}:${minutes}`;
+}
+
+function getCurrentCampusMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return value("hour") * 60 + value("minute");
+}
+
+function ApiErrorState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="api-state-error" role="alert">
+      <p>{message}</p>
+      <button className="text-button" onClick={onRetry}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function StudentEmptyState() {
+  return (
+    <div className="empty-state">
+      <p>You haven't registered for any courses yet</p>
+      <Link className="button secondary-button" to="/find-classes">
+        Find classes
+      </Link>
     </div>
   );
 }
@@ -406,7 +466,7 @@ export function CheckIn({
                 <Icon name="check" size={32} />
               </div>
               <span className="eyebrow">ATTENDANCE RECORDED</span>
-              <h2>You're checked in, Amara!</h2>
+              <h2>You're checked in!</h2>
               <p>
                 Your attendance for{" "}
                 {selectedLiveClass?.course_title ?? "your live class"} has been
@@ -742,7 +802,9 @@ export function CheckIn({
             <div className="class-detail">
               <Icon name="clock" size={17} />
               <span>
-                9:00 – 10:30 AM<small>Ends in 42 minutes</small>
+                {selectedLiveClass
+                  ? `Started ${formatTime(selectedLiveClass.started_at)}`
+                  : "No live session"}
               </span>
             </div>
             <div className="class-detail">
@@ -750,17 +812,6 @@ export function CheckIn({
               <span>
                 {selectedLiveClass?.venue_name ?? "Venue unavailable"}
               </span>
-            </div>
-            <div className="aside-count">
-              <div>
-                <strong>28</strong>
-                <span>students here</span>
-              </div>
-              <div className="student-stack">
-                <span>JM</span>
-                <span>EK</span>
-                <span>+26</span>
-              </div>
             </div>
           </div>
           <div className="privacy-card">
@@ -789,35 +840,73 @@ export function CheckIn({
 }
 
 export function FindClasses() {
-  const demoState = useDemoState();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [department, setDepartment] = useState("Computer Engineering");
-  const [level, setLevel] = useState("300 level");
-  const [kind, setKind] = useState("All types");
+  const [departmentId, setDepartmentId] = useState("");
+  const [level, setLevel] = useState("");
+  const [kind, setKind] = useState<SearchOfferingsQuery["kind"] | "">("");
+  const [departments, setDepartments] = useState<
+    { id: SearchOffering["department_id"]; name: SearchOffering["department_name"] }[]
+  >([]);
+  const [registeringId, setRegisteringId] = useState("");
+  const [mutationError, setMutationError] = useState("");
+  const [mutationErrorId, setMutationErrorId] = useState("");
+  const [registrationResult, setRegistrationResult] = useState<{
+    id: string;
+    status: "pending" | "approved" | "rejected";
+  } | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
-  const courses = demoState.offerings
-    .map((offering) => ({
-      name: offering.title,
-      code: offering.code,
-      dept: offering.department,
-      level: offering.level,
-      kind: offering.kind,
-      lecturer: offering.lecturer,
-      mode: offering.registration,
-    }))
-    .filter(
-      (course) =>
-        `${course.name} ${course.code} ${course.lecturer}`
-          .toLowerCase()
-          .includes(debouncedQuery.toLowerCase()) &&
-        (department === "All departments" || course.dept === department) &&
-        (level === "All levels" || course.level === level) &&
-        (kind === "All types" || course.kind === kind),
-    );
+  const searchParams = new URLSearchParams({ q: debouncedQuery });
+  if (departmentId) searchParams.set("department_id", departmentId);
+  if (level) searchParams.set("level", level);
+  if (kind) searchParams.set("kind", kind);
+  const search = useApiResource<SearchOfferingsResponse>(
+    `/offerings/search?${searchParams.toString()}`,
+  );
+  const results = search.data?.items ?? [];
+  useEffect(() => {
+    const offerings = search.data?.items;
+    if (!offerings?.length) return;
+    setDepartments((current) => {
+      const next = new Map(
+        current.map((department) => [department.id, department]),
+      );
+      offerings.forEach((item) =>
+        next.set(item.department_id, {
+          id: item.department_id,
+          name: item.department_name,
+        }),
+      );
+      return [...next.values()];
+    });
+  }, [search.data]);
+
+  async function register(offering: SearchOffering) {
+    setRegisteringId(offering.offering_id);
+    setMutationError("");
+    setMutationErrorId("");
+    try {
+      const registration = await apiRequest<RegistrationResponse>(
+        `/offerings/${encodeURIComponent(offering.offering_id)}/registrations`,
+        {
+        method: "POST",
+        },
+      );
+      search.reload();
+      setRegistrationResult({
+        id: offering.offering_id,
+        status: registration.status,
+      });
+    } catch (caught: unknown) {
+      setMutationError(formatApiError(caught));
+      setMutationErrorId(offering.offering_id);
+    } finally {
+      setRegisteringId("");
+    }
+  }
   return (
     <div className="page-stack">
       <PageHeading
@@ -843,13 +932,17 @@ export function FindClasses() {
             <select
               className="filter-select"
               aria-label="Filter by department"
-              value={department}
-              onChange={(event) => setDepartment(event.target.value)}
+              value={departmentId}
+              onChange={(event) => setDepartmentId(event.target.value)}
             >
-              <option>Computer Engineering</option>
-              <option>Electrical Engineering</option>
-              <option>General Studies</option>
-              <option>All departments</option>
+              <option value="">All departments</option>
+              {departments.map((department) => {
+                return (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <label>
@@ -860,9 +953,12 @@ export function FindClasses() {
               value={level}
               onChange={(event) => setLevel(event.target.value)}
             >
-              <option>300 level</option>
-              <option>200 level</option>
-              <option>All levels</option>
+              <option value="">All levels</option>
+              {[100, 200, 300, 400, 500, 600].map((value) => (
+                <option key={value} value={value}>
+                  {value} level
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -871,73 +967,111 @@ export function FindClasses() {
               className="filter-select"
               aria-label="Filter by course kind"
               value={kind}
-              onChange={(event) => setKind(event.target.value)}
+              onChange={(event) =>
+                setKind(event.target.value as SearchOfferingsQuery["kind"] | "")
+              }
             >
-              <option>All types</option>
-              <option>Core</option>
-              <option>Elective</option>
-              <option>General</option>
+              <option value="">All types</option>
+              <option value="departmental">Departmental</option>
+              <option value="general">General</option>
             </select>
           </label>
           <button
             className="clear-filters"
             onClick={() => {
               setQuery("");
-              setDepartment("Computer Engineering");
-              setLevel("300 level");
-              setKind("All types");
+              setDepartmentId("");
+              setLevel("");
+              setKind("");
             }}
           >
             Reset filters
           </button>
         </div>
-        <div className="browse-count">
-          Showing <b>{courses.length} classes</b> for your department and level
-        </div>
+        {search.loading ? (
+          <p role="status">Searching classes…</p>
+        ) : search.error ? (
+          <ApiErrorState message={search.error} onRetry={search.reload} />
+        ) : (
+          <div className="browse-count">
+            Showing <b>{results.length} classes</b>
+          </div>
+        )}
         <div className="course-results">
-          {courses.map((course) => (
-            <article className="course-result" key={course.code}>
-              <div className="course-monogram">{course.code.slice(0, 3)}</div>
+          {!search.loading && !search.error && results.length === 0 && (
+            <p className="empty-state">No classes match your search.</p>
+          )}
+          {results.map((course) => {
+            const actionStatus =
+              registrationResult?.id === course.offering_id
+                ? registrationResult.status
+                : course.registration_status;
+            const closed = course.registration_mode === "closed";
+            const registered = actionStatus === "approved" || course.is_registered;
+            const pending = actionStatus === "pending" || course.is_pending;
+            return (
+            <article className="course-result" key={course.offering_id}>
+              <div className="course-monogram">
+                {course.course_code.slice(0, 3)}
+              </div>
               <div className="course-result-main">
                 <div className="result-title-line">
-                  <h3>{course.name}</h3>
-                  <span className="kind-tag">{course.kind}</span>
+                  <h3>{course.course_title}</h3>
+                  <span className="kind-tag">
+                    {course.kind === "general" ? "General" : "Departmental"}
+                  </span>
                 </div>
                 <p>
-                  {course.code} <span>·</span> {course.dept} <span>·</span>{" "}
-                  {course.level}
+                  {course.course_code} <span>·</span> {course.department_name}{" "}
+                  <span>·</span> {course.level} level
                 </p>
                 <small>
-                  {course.lecturer} <span>·</span> Registration{" "}
-                  {course.mode.toLowerCase()}
+                  {course.lecturers.join(", ")} <span>·</span>{" "}
+                  {course.registration_mode === "approval"
+                    ? "Approval required"
+                    : `Registration ${course.registration_mode}`}
                 </small>
+                {closed && (
+                  <small className="registration-reason">
+                    Registration is closed for this offering.
+                  </small>
+                )}
+                {pending && (
+                  <span className="status-chip pending">
+                    <Icon name="clock" size={13} /> Pending approval
+                  </span>
+                )}
+                {registered && (
+                  <span className="status-chip verified">
+                    <Icon name="check" size={13} /> Registered
+                  </span>
+                )}
+                {mutationErrorId === course.offering_id && (
+                  <span className="registration-error" role="alert">
+                    {mutationError}
+                  </span>
+                )}
               </div>
               <button
-                className={`button ${demoState.enrollments.includes(course.code) ? "registered-button" : "secondary-button"}`}
-                disabled={
-                  course.mode === "Closed" ||
-                  demoState.enrollments.includes(course.code)
-                }
-                onClick={() => {
-                  if (!isMockMode()) return;
-                  const enrolled = demoState.enrollments.includes(course.code);
-                  if (!enrolled)
-                    updateDemoState((current) => ({
-                      ...current,
-                      enrollments: [...current.enrollments, course.code],
-                    }));
-                }}
+                className={`button ${registered ? "registered-button" : "secondary-button"}`}
+                disabled={closed || registered || pending || registeringId === course.offering_id}
+                onClick={() => void register(course)}
               >
-                {demoState.enrollments.includes(course.code)
-                  ? "Registered ✓"
-                  : course.mode === "Approval"
-                    ? "Request to join"
-                    : course.mode === "Closed"
-                      ? "Registration closed"
-                      : "Register"}{" "}
+                {registeringId === course.offering_id
+                  ? "Submitting…"
+                  : registered
+                    ? "Registered"
+                    : pending
+                      ? "Request pending"
+                      : closed
+                        ? "Registration closed"
+                        : course.registration_mode === "approval"
+                          ? "Request to join"
+                          : "Register"}
               </button>
             </article>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>
@@ -945,10 +1079,8 @@ export function FindClasses() {
 }
 
 export function Courses() {
-  const demoState = useDemoState();
-  const courses = COURSES.filter((course) =>
-    demoState.enrollments.includes(course.code),
-  );
+  const { data, loading, error, reload } =
+    useApiResource<StudentCoursesResponse>("/me/courses");
   return (
     <div className="page-stack">
       <PageHeading
@@ -956,88 +1088,83 @@ export function Courses() {
         title="My courses"
         subtitle="Your semester, all in one place."
       />
-      <div className="course-card-grid">
-        {courses.map((course, index) => (
-          <article className="panel my-course-card" key={course.code}>
-            <span
-              className={`course-label ${index === 1 ? "label-warning" : ""}`}
-            >
-              {index === 1 ? "NEEDS ATTENTION" : "ENROLLED"}
-            </span>
-            <h2>{course.title}</h2>
-            <span className="course-code-line">
-              {course.code} <span>·</span> {index === 2 ? "Elective" : "Core"}
-            </span>
-            <div className="my-course-attendance">
-              <div>
-                <span>Attendance</span>
-                <b className={course.percent < 75 ? "below-threshold" : ""}>
-                  {course.percent}%
-                </b>
-              </div>
-              <div className="progress-track">
-                <span
-                  className={`progress-fill ${course.tone}`}
-                  style={{ width: `${course.percent}%` }}
+      {loading ? (
+        <p role="status">Loading your courses…</p>
+      ) : error ? (
+        <ApiErrorState message={error} onRetry={reload} />
+      ) : data?.items.length ? (
+        <div className="course-card-grid">
+          {data.items.map((course) => (
+            <article className="panel my-course-card" key={course.offering_id}>
+              <span
+                className={`course-label ${course.below_threshold ? "label-warning" : ""}`}
+              >
+                <Icon
+                  name={course.below_threshold ? "dispute" : "check"}
+                  size={12}
                 />
+                {course.below_threshold ? "Needs attention" : "Enrolled"}
+              </span>
+              <h2>{course.course_title}</h2>
+              <span className="course-code-line">
+                {course.course_code} <span>·</span>{" "}
+                {course.lecturer_names.join(", ")}
+              </span>
+              <div className="my-course-attendance">
+                <div>
+                  <span>
+                    Attendance ({course.sessions_attended}/
+                    {course.sessions_held} sessions)
+                  </span>
+                  <b
+                    className={course.below_threshold ? "below-threshold" : ""}
+                  >
+                    {Math.round(course.attendance_percentage)}%
+                  </b>
+                </div>
+                <div className="progress-track">
+                  <span
+                    className={`progress-fill ${course.below_threshold ? "red" : "blue"}`}
+                    style={{ width: `${course.attendance_percentage}%` }}
+                  />
+                </div>
+                <small>
+                  Minimum: {course.minimum_attendance_percentage}%
+                </small>
               </div>
-            </div>
-            <Link to="/history" className="panel-link">
-              View attendance history <Icon name="arrow" size={15} />
-            </Link>
-          </article>
-        ))}
-      </div>
+              <Link
+                to={`/history?offeringId=${encodeURIComponent(course.offering_id)}`}
+                className="panel-link"
+              >
+                View attendance history <Icon name="arrow" size={15} />
+              </Link>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <StudentEmptyState />
+      )}
     </div>
   );
 }
 
 export function History() {
-  const demoState = useDemoState();
-  const [filter, setFilter] = useState("All courses");
-  const account = getMockSession();
-  const student = account
-    ? demoState.students.find((candidate) => candidate.name === account.name)
-    : undefined;
-  const mockRows =
-    isMockMode() && student
-      ? demoState.attendance
-          .filter((record) => record.studentId === student.id)
-          .map((record) => {
-            const offering = demoState.offerings.find(
-              (candidate) => candidate.code === record.offeringCode,
-            );
-            const status = record.status.replaceAll("_", " ");
-            return [
-              "Today · 17 Feb",
-              offering?.title ?? record.offeringCode,
-              record.offeringCode,
-              status === "verified"
-                ? "Verified"
-                : status.replace(/\b\w/g, (letter) => letter.toUpperCase()),
-              record.status,
-            ];
-          })
-      : null;
-  const historyRows = mockRows ?? [
-    [
-      "Today · 17 Feb",
-      "Human Computer Interaction",
-      "CSC 342",
-      "Verified",
-      "verified",
-    ],
-    ["Fri · 14 Feb", "Database Management", "CSC 326", "Late · 11 min", "late"],
-    ["Thu · 13 Feb", "Software Engineering", "CSC 318", "Verified", "verified"],
-    [
-      "Wed · 12 Feb",
-      "Human Computer Interaction",
-      "CSC 342",
-      "Excused",
-      "excused",
-    ],
-    ["Tue · 11 Feb", "Database Management", "CSC 326", "Absent", "absent"],
-  ];
+  const courses = useApiResource<StudentCoursesResponse>("/me/courses");
+  const [selectedOfferingId, setSelectedOfferingId] = useState("");
+  const [searchParams] = useSearchParams();
+  const requestedOfferingId =
+    selectedOfferingId ||
+    searchParams.get("offeringId") ||
+    courses.data?.items[0]?.offering_id ||
+    "";
+  const attendance = useApiResource<StudentAttendanceResponse>(
+    requestedOfferingId
+      ? `/me/attendance?offering_id=${encodeURIComponent(requestedOfferingId)}`
+      : null,
+  );
+  const selectedCourse = courses.data?.items.find(
+    (course) => course.offering_id === requestedOfferingId,
+  );
   return (
     <div className="page-stack">
       <PageHeading
@@ -1048,40 +1175,68 @@ export function History() {
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Recent sessions</h2>
-            <p>Your attendance across the semester</p>
+            <h2>Course attendance</h2>
+            <p>Choose a course to see your attendance history</p>
           </div>
           <select
             className="filter-select"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            aria-label="Attendance history course"
+            value={requestedOfferingId}
+            disabled={courses.loading || !courses.data?.items.length}
+            onChange={(event) => setSelectedOfferingId(event.target.value)}
           >
-            <option>All courses</option>
-            {COURSES.map((c) => (
-              <option key={c.code}>{c.code}</option>
+            {courses.data?.items.map((course) => (
+              <option key={course.offering_id} value={course.offering_id}>
+                {course.course_code} · {course.course_title}
+              </option>
             ))}
           </select>
         </div>
-        <div className="history-list">
-          {historyRows
-            .filter((item) => filter === "All courses" || item[2] === filter)
-            .map((item) => (
-              <div
-                className="history-row"
-                key={(item[0] ?? "") + (item[2] ?? "")}
-              >
-                <span className="history-date">{item[0] ?? ""}</span>
+        {courses.loading ? (
+          <p role="status">Loading your courses…</p>
+        ) : courses.error ? (
+          <ApiErrorState message={courses.error} onRetry={courses.reload} />
+        ) : !courses.data?.items.length ? (
+          <StudentEmptyState />
+        ) : attendance.loading ? (
+          <p role="status">Loading attendance history…</p>
+        ) : attendance.error ? (
+          <ApiErrorState
+            message={attendance.error}
+            onRetry={attendance.reload}
+          />
+        ) : attendance.data?.items.length ? (
+          <div className="history-list">
+            {attendance.data.items.map((item) => (
+              <div className="history-row" key={item.session_id}>
+                <span className="history-date">
+                  {new Date(`${item.date}T12:00:00`).toLocaleDateString(
+                    undefined,
+                    { dateStyle: "medium" },
+                  )}
+                </span>
                 <div className="history-course">
-                  <b>{item[1] ?? ""}</b>
-                  <span>{item[2] ?? ""}</span>
+                  <b>{selectedCourse?.course_title ?? "Course session"}</b>
+                  <span>
+                    {selectedCourse?.course_code} · {item.classification.replaceAll("_", " ")}
+                    {item.override_reason ? ` · ${item.override_reason}` : ""}
+                  </span>
                 </div>
-                <span className={`status-chip ${item[4]}`}>
-                  <i />
-                  {item[3] ?? ""}
+                <span className={`status-chip ${item.status}`}>
+                  <Icon
+                    name={item.status === "absent" ? "dispute" : "check"}
+                    size={13}
+                  />
+                  {item.status.replace(/\b\w/g, (letter) =>
+                    letter.toUpperCase(),
+                  )}
                 </span>
               </div>
             ))}
-        </div>
+          </div>
+        ) : (
+          <p className="empty-state">No attendance records for this course yet.</p>
+        )}
       </section>
     </div>
   );

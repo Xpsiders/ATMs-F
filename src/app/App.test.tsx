@@ -14,9 +14,13 @@ import { server } from "@/test/setup";
 import type {
   CurrentUser,
   EndSessionResponse,
+  LiveClassesResponse,
   SessionCodeResponse,
   StartSessionRequest,
   StartSessionResponse,
+  StudentAttendanceResponse,
+  StudentCoursesResponse,
+  StudentTimetableResponse,
 } from "@/api/contracts";
 import {
   clearMockSession,
@@ -96,10 +100,10 @@ describe("Campus Attendance screens", () => {
   it("shows the student overview and attendance warning", async () => {
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: /Good morning, Amara/ }),
+      await screen.findByRole("heading", { name: "Your day at a glance" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Below the 75% attendance requirement/),
+      await screen.findByText(/Below the 75% attendance requirement/),
     ).toBeInTheDocument();
   });
 
@@ -126,16 +130,150 @@ describe("Campus Attendance screens", () => {
   it("filters classes by department", async () => {
     const user = userEvent.setup();
     renderApp("/find-classes");
-    await user.selectOptions(
-      await screen.findByRole("combobox", { name: "Filter by department" }),
-      "General Studies",
-    );
+    const departmentFilter = await screen.findByRole("combobox", {
+      name: "Filter by department",
+    });
+    await screen.findByRole("option", { name: "General Studies" });
+    await user.selectOptions(departmentFilter, "General Studies");
     expect(
       screen.getByRole("heading", { name: "General Studies" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Computer Architecture" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows API-backed empty states for a student with no courses or classes", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const emptyLive: LiveClassesResponse = { items: [] };
+    const emptyTimetable: StudentTimetableResponse = {
+      date: "2026-10-21",
+      items: [],
+    };
+    const emptyCourses: StudentCoursesResponse = { items: [] };
+    server.use(
+      http.get(`${apiBaseUrl}/me/live-classes`, () =>
+        HttpResponse.json(emptyLive),
+      ),
+      http.get(`${apiBaseUrl}/me/timetable`, () =>
+        HttpResponse.json(emptyTimetable),
+      ),
+      http.get(`${apiBaseUrl}/me/courses`, () =>
+        HttpResponse.json(emptyCourses),
+      ),
+    );
+    renderApp("/");
+
+    expect(
+      await screen.findByText("No class is live right now"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Nothing scheduled today")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("You haven't registered for any courses yet"),
+    ).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: "Find classes" })).not.toHaveLength(
+      0,
+    );
+  });
+
+  it("registers or requests a class through the API and shows pending status", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const requests: string[] = [];
+    server.use(
+      http.post(`${apiBaseUrl}/offerings/:id/registrations`, ({ params }) => {
+        requests.push(String(params.id));
+        return HttpResponse.json(
+          {
+            student_id: "20000000-0000-4000-8000-000000000001",
+            status: "pending",
+            on_roster: false,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    renderApp("/find-classes");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Request to join" }),
+    );
+    expect(
+      await screen.findByText("Pending approval"),
+    ).toBeInTheDocument();
+    expect(requests).toEqual(["10000000-0000-4000-8000-000000000305"]);
+    expect(
+      screen.getByRole("button", { name: "Request pending" }),
+    ).toBeDisabled();
+  });
+
+  it("shows a failed student API request and offers retry", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    server.use(
+      http.get(`${apiBaseUrl}/me/courses`, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: "student_courses_unavailable",
+              message: "Course service is unavailable.",
+              details: {},
+            },
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+    renderApp("/courses");
+
+    expect(
+      await screen.findByRole("alert"),
+    ).toHaveTextContent("student_courses_unavailable");
+    expect(
+      screen.getByRole("button", { name: "Retry" }),
+    ).toBeInTheDocument();
+  });
+
+  it("loads attendance history for the selected course offering", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const requestedIds: string[] = [];
+    const attendance: StudentAttendanceResponse = {
+      items: [
+        {
+          session_id: "30000000-0000-4000-8000-000000000001",
+          date: "2026-10-20",
+          status: "excused",
+          classification: "excused",
+          override_reason: "Medical approval",
+        },
+      ],
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me/attendance`, ({ request }) => {
+        requestedIds.push(
+          new URL(request.url).searchParams.get("offering_id") ?? "",
+        );
+        return HttpResponse.json(attendance);
+      }),
+    );
+    renderApp("/history");
+
+    const courseSelect = await screen.findByRole("combobox", {
+      name: "Attendance history course",
+    });
+    await waitFor(() => expect(courseSelect).toBeEnabled());
+    await user.selectOptions(
+      courseSelect,
+      "10000000-0000-4000-8000-000000000201",
+    );
+    expect(await screen.findByText(/Medical approval/)).toBeInTheDocument();
+    expect(requestedIds).toContain(
+      "10000000-0000-4000-8000-000000000201",
+    );
   });
 
   it("shows scanner coverage loss and the fixed-code banner", async () => {
@@ -198,7 +336,7 @@ describe("Campus Attendance screens", () => {
   it("persists the selected theme across app reloads", async () => {
     const user = userEvent.setup();
     const view = renderApp();
-    await screen.findByRole("heading", { name: /Good morning, Amara/ });
+    await screen.findByRole("heading", { name: "Your day at a glance" });
     const themeSelect = view.container.querySelector("#theme-select");
     if (!(themeSelect instanceof HTMLSelectElement))
       throw new Error("Theme selector is not rendered.");
@@ -425,7 +563,10 @@ describe("Campus Attendance screens", () => {
     await user.click(
       await screen.findByRole("button", { name: "Sign in as Student" }),
     );
-    await user.click(await screen.findByRole("link", { name: "Check in" }));
+    const checkInLinks = await screen.findAllByRole("link", {
+      name: "Check in",
+    });
+    await user.click(checkInLinks.at(-1)!);
     await user.selectOptions(
       await screen.findByRole("combobox", { name: "Live class" }),
       createdSession.id,
@@ -467,7 +608,7 @@ describe("Campus Attendance screens", () => {
       {
         label: "Student",
         role: "student",
-        heading: /Good morning, Amara/,
+        heading: "Your day at a glance",
       },
       {
         label: "Lecturer",
@@ -573,7 +714,7 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Go to your home" }));
     expect(
-      await screen.findByRole("heading", { name: /Good morning, Amara/ }),
+      await screen.findByRole("heading", { name: "Your day at a glance" }),
     ).toBeInTheDocument();
   });
 
@@ -644,7 +785,7 @@ describe("Campus Attendance screens", () => {
       await screen.findByRole("button", { name: "Sign in as Student" }),
     );
     expect(
-      await screen.findByRole("heading", { name: /Good morning, Amara/ }),
+      await screen.findByRole("heading", { name: "Your day at a glance" }),
     ).toBeInTheDocument();
     await user.click(screen.getAllByRole("link", { name: "Attendance" })[0]!);
     expect(

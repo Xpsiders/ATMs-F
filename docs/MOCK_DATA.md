@@ -17,15 +17,15 @@ The one-click login controls select the role without storing the displayed passw
 
 | Offering | Department / level | Type / registration | Where it appears |
 |---|---|---|---|
-| ENG 301 — Engineering Mathematics III | Electrical Engineering / 300 | General / Open / Dr. Ngozi Eze | Student schedule, check-in, lecturer live session, report, print sheet |
-| CPE 305 — Computer Architecture | Computer Engineering / 300 | Core / Approval / Mr. Chidi Obi | Student course cards and class search |
-| GST 201 — General Studies | General Studies / 300 | General / Open / Dr. Tunde Bello | Student course cards and class search; attendance seed is 68% |
+| ENG 301 — Engineering Mathematics III | Electrical Engineering / 300 | General / Open / Dr. Ngozi Eze | Student home, timetable, check-in, lecturer live session, report, print sheet |
+| CPE 305 — Computer Architecture | Computer Engineering / 300 | Core / Approval / Mr. Chidi Obi | Student class search; demo registration can create a pending approval request |
+| GST 201 — General Studies | General Studies / 300 | General / Open / Dr. Tunde Bello | Student home, timetable, courses and class search; attendance seed is 68% |
 | CPE 318 — Embedded Systems Design | Computer Engineering / 300 | Elective / Closed / Prof. Ada Nwosu | Student class search |
 | CSC 342 — Human Computer Interaction | Computer Science / 300 | Core / seeded teaching-card fields are not defined | Lecturer teaching list |
 | CSC 326 — Database Management | Computer Science / 300 | Core / seeded teaching-card fields are not defined | Lecturer teaching list and student schedule |
 | CSC 318 — Software Engineering | Computer Science / 300 | Core / seeded teaching-card fields are not defined | Lecturer teaching list and student schedule |
 
-The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. The student class search, course enrollment list, check-in, lecturer roster/report, scanner state, session fixed-code state, and print sheet read from this shared store. The dashboard's summary percentages and non-mock fallback content remain local fixtures.
+The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. Student home, search, course cards, registration actions, timetable, attendance history, check-in, lecturer roster/report, scanner state, session fixed-code state, and print sheet use mock API handlers backed by the shared mock store. Real-mode student screens call the API directly and do not read this store.
 
 ## Session, students, attendance, scanners
 

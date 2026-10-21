@@ -20,14 +20,14 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Auth | Forgot password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling a guessed endpoint. |
 | Auth | Reset password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling guessed endpoints. |
 | Auth | Change password | Placeholder | Real mode calls the supported change-password operation; mock mode does not change a demo account password. |
-| Student | Home / daily schedule / attendance snapshot | Placeholder | Main numbers, schedule and attendance summary are hard-coded; no schedule/attendance dashboard flow is wired to the shared store. |
-| Student | Find classes / search and filters | Done | Search, department, level and kind filters read shared seeded offerings. |
-| Student | Register / request to join a class | Placeholder | Enrollment writes to the shared store, but all available/open offerings in the seed are already enrolled and the remaining courses are closed; the seeded demo cannot complete a fresh registration/request. |
-| Student | My courses | Done | Course list is derived from shared enrollment state; attendance percentages remain seeded display values. |
+| Student | Home / daily schedule / attendance snapshot | Done | Loads live classes from `/me/live-classes`, later classes from `/me/timetable`, and threshold attendance from `/me/courses`; each resource has loading/error handling and the screen has explicit no-live, no-schedule and no-course empty states. |
+| Student | Find classes / search and filters | Done | Debounced search and department/level/kind filters call typed `/offerings/search`; results use API registration status and display closed, pending, approved, and available states. |
+| Student | Register / request to join a class | Done | `POST /offerings/{id}/registrations` registers open offerings or requests approval; mutation errors render on the offering, closed offerings are disabled, and pending status is visible. The contract has no specific closure-reason field, so the UI explains only that registration is closed. |
+| Student | My courses | Done | `/me/courses` drives course cards and attendance percentages/threshold styling; loading, API error/retry, and empty state with Find classes CTA are implemented. |
 | Student | Check-in code and location entry | Done | Fetches live classes from `GET /me/live-classes`, lets the student select an active class, and submits that class's returned `session_id` to `POST /checkins`. Keyboard/touch input, location request, mock success/error selection, and offline-disabled submit are implemented. |
 | Student | Check-in success receipt | Done | Success state shows the saved result, timing/distance and fingerprint reminder. |
 | Student | Check-in offline/error/lockout states | Done | Offline explanation and centralized error presentation render; scenario selection exercises mapped errors in development. |
-| Student | Attendance history | Done | Mock history displays shared attendance for the signed-in demo student and filters by course; live API integration remains unavailable. |
+| Student | Attendance history | Done | Course selector loads `/me/courses`, then per-course records from `/me/attendance`; loading/error/retry and no-courses/no-records states are implemented. |
 | Student | Attendance disputes | Placeholder | Informational page only; no dispute submission or status tracking. |
 | Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
 | Lecturer | Offerings / teaching list | Placeholder | The teaching list is still static, but its start links open the working session form. |
@@ -97,3 +97,15 @@ Previous task complete: aligned the lecturer session form to the synced contract
 Current task complete: the app restores the session then loads `GET /me`, uses that response to choose the role workspace after login and page load, guards role-specific routes with a 403 redirect, and displays API-provided name, department ID, and level in the app bar and profile. The API does not provide a human-readable department name. Real-backend behavior remains unverified.
 
 The following are not established yet: 375/768/1280 automated viewport coverage, real-backend compatibility, and real-device behavior for GPS, Wake Lock, fullscreen, airplane mode, printing, and power loss.
+
+## Student API screens
+
+| Command | Result |
+|---|---|
+| `pnpm sync:api` | Passed; synced `api/openapi.yaml` from the sibling backend and regenerated operation types. |
+| `pnpm lint` | Passed with 0 errors and 4 Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; an initial run identified a nullable search result inside an effect, which was fixed using a local narrowed value. |
+| `pnpm test` | Passed; 10 test files and 47 tests passed, including API-backed student empty states, search filters, registration/pending state, retry, and course-specific attendance history. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **384.12 kB / 115.17 kB gzip**, **24.22 kB / 7.13 kB gzip**, and **2.47 kB / 1.05 kB gzip** (total **410.81 kB / 123.35 kB gzip**); CSS was **61.35 kB / 13.12 kB gzip**. |
+
+Student home, class search and registration, course list, and attendance history now use the synced API contract in real mode, with loading, empty, error, and retry states where applicable. Mock handlers use the same generated operation types for development. The timetable's “later today” comparison uses Africa/Lagos time. No server or browser visual check was run; real-backend compatibility and automated 375/768/1280 viewport coverage remain unverified.

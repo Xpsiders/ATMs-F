@@ -1600,10 +1600,60 @@
   color: var(--muted);
   font-size: 9px;
 }
+.registration-reason,
+.registration-error {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.4;
+}
+.registration-reason {
+  color: var(--danger);
+}
+.registration-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
 .registered-button {
   color: var(--success);
   border: 1px solid var(--border);
   background: var(--success-bg);
+}
+.course-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.status-chip.pending {
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.empty-state p {
+  margin: 0;
+}
+.api-state-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.api-state-error p {
+  margin: 0;
 }
 .course-card-grid {
   display: grid;
@@ -2735,6 +2785,9 @@
   .app-shell:not([data-role="student"]) .desktop-student-nav {
     display: none;
   }
+  .app-shell[data-role="student"] .desktop-student-nav {
+    display: none;
+  }
   .topbar-actions {
     margin-left: auto;
     gap: 10px;
@@ -2804,7 +2857,25 @@
     padding: 20px 14px 25px;
   }
   .topbar {
-    padding: 0 14px;
+    height: auto;
+    min-height: 58px;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 14px;
+  }
+  .topbar > .breadcrumb > span:first-child,
+  .topbar > .breadcrumb > .crumb-slash {
+    display: none;
+  }
+  .topbar > .breadcrumb {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    margin-left: 0;
   }
   .offline-banner {
     padding: 0 14px;
@@ -2823,7 +2894,13 @@
     display: none;
   }
   .topbar-identity {
-    max-width: 92px;
+    flex: 1;
+    max-width: none;
+  }
+  .topbar-identity b,
+  .topbar-identity small {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .topbar-identity small {
     font-size: 8px;
@@ -2924,14 +3001,21 @@
   }
   .course-result > .button {
     margin-left: 50px;
-    min-height: 36px;
+    min-height: 44px;
+  }
+  .panel-heading > .filter-select {
+    min-width: 0;
+    max-width: 52%;
+    min-height: 44px;
   }
   .history-row {
-    gap: 9px;
+    display: grid;
+    grid-template-columns: minmax(58px, 0.4fr) minmax(0, 1fr) auto;
+    gap: 7px;
     min-height: 65px;
   }
   .history-date {
-    width: 65px;
+    width: auto;
     font-size: 8px;
   }
   .history-course b {
@@ -3440,12 +3524,51 @@
 
 .class-filter-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: 10px;
+}
+.class-filter-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.class-filter-controls .filter-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+.class-filter-controls .clear-filters {
+  min-height: 44px;
+  padding: 0 8px;
+}
+.search-field {
+  min-height: 44px;
+}
+.course-result > .button {
+  min-height: 44px;
+}
+.app-shell[data-role="student"] .main-content .button,
+.app-shell[data-role="student"] .main-content .text-button,
+.app-shell[data-role="student"] .main-content .panel-link,
+.app-shell[data-role="student"] .main-content .small-checkin {
+  min-height: 44px;
+}
+.app-shell[data-role="student"] .filter-select {
+  min-height: 44px;
+}
+.course-result .status-chip {
+  width: fit-content;
+  margin-top: 6px;
 }
 
 @media (max-width: 767px) {
   .class-filter-controls {
     grid-template-columns: 1fr;
+  }
+  .class-filter-controls .clear-filters {
+    justify-self: start;
   }
 }

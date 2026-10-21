@@ -17,6 +17,12 @@ operations and payloads; frontend aliases are maintained in
 | `GET /me/offerings` | Returns paginated offerings visible to the authenticated lecturer; `id` is generated as UUID. Additional course display fields are allowed but not specified by the schema. |
 | `GET /venues` | Returns paginated venue items with `id`, `name`, `latitude`, `longitude`, and `radius_meters`. |
 | `GET /me/live-classes` | Returns live sessions visible to the authenticated student, including session/offering/venue IDs and course display fields. |
+| `GET /me/timetable` | Returns today's timetable entries with offering, course, venue, start/end time, and live indicator. |
+| `GET /me/courses` | Returns approved courses with session counts, attendance percentage, minimum threshold, and below-threshold boolean. |
+| `GET /me/attendance?offering_id={uuid}` | Returns per-session attendance status, classification, date, and optional override reason for one approved course. |
+| `GET /me/registrations` | Returns pending registration requests with course labels and created timestamp. |
+| `GET /offerings/search?q=...` | Returns typed offering/course identity, department, level, kind, registration mode, lecturers, and registration status flags. |
+| `POST /offerings/{id}/registrations` | Submits registration for open offerings or a request for approval-mode offerings; response includes approved/pending state. |
 | `POST /checkins` | Requires session ID, six-digit code, coordinates, and accuracy; returns `present` or `late`, roster/accuracy flags, and distance. |
 | `POST /sessions` | The frontend sends exactly `offering_id`, `venue_id`, boolean `rotating_code`, and numeric `late_after_min` as JSON. The response includes the created `session.id`, code, and server-authoritative remaining seconds. |
 | `GET /sessions/{id}/code` | Returns `session`, `code`, and server-authoritative `seconds_remaining`. |
@@ -49,6 +55,13 @@ operations. In real-API mode the corresponding unsupported auth flows report
 that the current contract does not support them; the lecturer uses the defined
 bulk override endpoint for one or more selected students. Do not add guessed
 routes or payload fields without a backend contract update.
+
+The synced student contract includes the requested course, timetable,
+attendance, pending registration, search, and registration operations. The
+search result types the registration mode and status flags, but does not include
+a backend-provided closed-registration reason. The UI therefore displays the
+contract-supported state ("Registration is closed for this offering") without
+claiming a more specific backend reason.
 
 Session creation now uses `POST /sessions` and propagates its returned ID to
 code polling, session ending, report links, and print-sheet requests. Student

@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw";
 import type {
   CheckInRequest,
   CurrentUser,
+  SearchOfferingsQuery,
   StartSessionRequest,
 } from "@/api/contracts";
 import { getMockSession } from "@/mocks/auth";
@@ -12,9 +13,15 @@ import {
   getDemoSessionCode,
   getDemoState,
   listDemoLiveClasses,
+  listDemoPendingRegistrations,
   listDemoOfferings,
+  listDemoStudentAttendance,
+  listDemoStudentCourses,
+  listDemoStudentTimetable,
   listDemoVenues,
   recordDemoCheckIn,
+  registerDemoOffering,
+  searchDemoOfferings,
   setDemoSessionFixedCode,
 } from "@/mocks/store";
 
@@ -71,6 +78,66 @@ export const handlers = [
   http.get(`${apiBaseUrl}/me/offerings`, () =>
     HttpResponse.json(listDemoOfferings()),
   ),
+  http.get(`${apiBaseUrl}/me/courses`, () =>
+    getMockSession()?.role === "student"
+      ? HttpResponse.json(listDemoStudentCourses())
+      : apiError(403, "not_a_student", "This endpoint is for students."),
+  ),
+  http.get(`${apiBaseUrl}/me/timetable`, () =>
+    getMockSession()?.role === "student"
+      ? HttpResponse.json(listDemoStudentTimetable())
+      : apiError(403, "not_a_student", "This endpoint is for students."),
+  ),
+  http.get(`${apiBaseUrl}/me/attendance`, ({ request }) => {
+    const account = getMockSession();
+    if (!account || account.role !== "student")
+      return apiError(403, "not_a_student", "This endpoint is for students.");
+    const offeringId = new URL(request.url).searchParams.get("offering_id");
+    if (!offeringId)
+      return apiError(400, "invalid_request", "offering_id is required.");
+    const student = getDemoState().students.find(
+      (candidate) => candidate.name === account.name,
+    );
+    return HttpResponse.json(
+      listDemoStudentAttendance(offeringId, student?.id),
+    );
+  }),
+  http.get(`${apiBaseUrl}/me/registrations`, () =>
+    getMockSession()?.role === "student"
+      ? HttpResponse.json(listDemoPendingRegistrations())
+      : apiError(403, "not_a_student", "This endpoint is for students."),
+  ),
+  http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
+    const url = new URL(request.url);
+    const level = url.searchParams.get("level");
+    const query: SearchOfferingsQuery = {
+      q: url.searchParams.get("q") ?? "",
+      ...(url.searchParams.get("department_id")
+        ? { department_id: url.searchParams.get("department_id")! }
+        : {}),
+      ...(level ? { level: Number(level) } : {}),
+      ...(readSearchKind(url.searchParams.get("kind"))
+        ? { kind: readSearchKind(url.searchParams.get("kind")) }
+        : {}),
+      ...(url.searchParams.get("limit")
+        ? { limit: Number(url.searchParams.get("limit")) }
+        : {}),
+      ...(url.searchParams.get("offset")
+        ? { offset: Number(url.searchParams.get("offset")) }
+        : {}),
+    };
+    return getMockSession()?.role === "student"
+      ? HttpResponse.json(searchDemoOfferings(query))
+      : apiError(403, "not_a_student", "This endpoint is for students.");
+  }),
+  http.post(`${apiBaseUrl}/offerings/:id/registrations`, ({ params }) => {
+    if (getMockSession()?.role !== "student")
+      return apiError(403, "not_a_student", "This endpoint is for students.");
+    const registration = registerDemoOffering(String(params.id));
+    return registration
+      ? HttpResponse.json(registration, { status: 201 })
+      : apiError(409, "registration_closed", "Registration is closed.");
+  }),
   http.get(`${apiBaseUrl}/venues`, () =>
     HttpResponse.json(listDemoVenues()),
   ),
@@ -144,3 +211,9 @@ export const handlers = [
     );
   }),
 ];
+
+function readSearchKind(
+  value: string | null,
+): SearchOfferingsQuery["kind"] | undefined {
+  return value === "departmental" || value === "general" ? value : undefined;
+}

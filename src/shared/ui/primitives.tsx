@@ -175,30 +175,6 @@ export const NAV = [
   { label: "Disputes", path: "/disputes", icon: "dispute" as const },
 ];
 
-export const LIVE_CLASS = {
-  title: "Engineering Mathematics III",
-  code: "ENG 301",
-  room: "Engineering · LT 2",
-  starts: "9:00 AM",
-  ends: "10:30 AM",
-};
-
-export const COURSES = [
-  {
-    title: "Engineering Mathematics III",
-    code: "ENG 301",
-    percent: 92,
-    tone: "blue",
-  },
-  { title: "GST 201", code: "GST 201", percent: 68, tone: "red" },
-  {
-    title: "Computer Architecture",
-    code: "CPE 305",
-    percent: 84,
-    tone: "gold",
-  },
-];
-
 export const CHECKIN_ERRORS = [
   "wrong_code",
   "code_expired",
@@ -220,9 +196,7 @@ export const CHECKIN_ERRORS = [
 ];
 
 export const OVERRIDE_STATUSES = [
-  "verified",
-  "suspected_proxy",
-  "scan_only",
+  "present",
   "absent",
   "late",
   "excused",
@@ -234,7 +208,7 @@ export const OVERRIDE_REASONS = [
   "official_duty",
   "medical",
   "other",
-] as const satisfies readonly AttendanceOverrideRequest["reason"][];
+] as const satisfies readonly AttendanceOverrideRequest["reason_code"][];
 
 export function isOverrideStatus(
   value: string,
@@ -244,7 +218,7 @@ export function isOverrideStatus(
 
 export function isOverrideReason(
   value: string,
-): value is AttendanceOverrideRequest["reason"] {
+): value is AttendanceOverrideRequest["reason_code"] {
   return OVERRIDE_REASONS.some((reason) => reason === value);
 }
 

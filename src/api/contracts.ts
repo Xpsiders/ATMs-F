@@ -5,6 +5,27 @@ export type SessionCodeResponse =
 export type LiveClassesResponse =
   operations["getMyLiveClasses"]["responses"][200]["content"]["application/json"];
 export type LiveClass = LiveClassesResponse["items"][number];
+export type StudentCoursesResponse =
+  operations["getMyCourses"]["responses"][200]["content"]["application/json"];
+export type StudentCourse = StudentCoursesResponse["items"][number];
+export type StudentTimetableResponse =
+  operations["getMyTimetable"]["responses"][200]["content"]["application/json"];
+export type TimetableEntry = StudentTimetableResponse["items"][number];
+export type StudentAttendanceResponse =
+  operations["getMyAttendance"]["responses"][200]["content"]["application/json"];
+export type StudentAttendanceEntry =
+  StudentAttendanceResponse["items"][number];
+export type PendingRegistrationsResponse =
+  operations["getMyPendingRegistrations"]["responses"][200]["content"]["application/json"];
+export type PendingRegistration =
+  PendingRegistrationsResponse["items"][number];
+export type SearchOfferingsResponse =
+  operations["searchOfferings"]["responses"][200]["content"]["application/json"];
+export type SearchOffering = SearchOfferingsResponse["items"][number];
+export type SearchOfferingsQuery =
+  operations["searchOfferings"]["parameters"]["query"];
+export type RegistrationResponse =
+  operations["registerForOffering"]["responses"][201]["content"]["application/json"];
 export type VenueListResponse =
   operations["listVenues"]["responses"][200]["content"]["application/json"];
 export type Venue = VenueListResponse["items"][number];

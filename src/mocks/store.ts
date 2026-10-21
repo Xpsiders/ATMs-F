@@ -1,6 +1,13 @@
 import type { components } from "@/api/schema";
 import type {
   LiveClassesResponse,
+  PendingRegistrationsResponse,
+  RegistrationResponse,
+  SearchOfferingsQuery,
+  SearchOfferingsResponse,
+  StudentAttendanceResponse,
+  StudentCoursesResponse,
+  StudentTimetableResponse,
   StartSessionRequest,
   VenueListResponse,
 } from "@/api/contracts";
@@ -14,6 +21,11 @@ export type DemoOffering = {
   kind: "Core" | "Elective" | "General";
   registration: "Open" | "Approval" | "Closed";
   lecturer: string;
+  attendanceSummary: {
+    sessionsHeld: number;
+    sessionsAttended: number;
+    minimumPercentage: number;
+  };
 };
 
 export type DemoStudent = {
@@ -72,6 +84,7 @@ export type DemoState = {
   scanners: DemoScanner[];
   attendance: DemoAttendance[];
   enrollments: string[];
+  pendingRegistrations: string[];
   auditEvents: string[];
 };
 
@@ -105,6 +118,11 @@ const INITIAL_DEMO_STATE: DemoState = {
       kind: "General",
       registration: "Open",
       lecturer: "Dr. Ngozi Eze",
+      attendanceSummary: {
+        sessionsHeld: 13,
+        sessionsAttended: 12,
+        minimumPercentage: 75,
+      },
     },
     {
       id: "10000000-0000-4000-8000-000000000305",
@@ -115,6 +133,11 @@ const INITIAL_DEMO_STATE: DemoState = {
       kind: "Core",
       registration: "Approval",
       lecturer: "Mr. Chidi Obi",
+      attendanceSummary: {
+        sessionsHeld: 25,
+        sessionsAttended: 21,
+        minimumPercentage: 75,
+      },
     },
     {
       id: "10000000-0000-4000-8000-000000000201",
@@ -125,6 +148,11 @@ const INITIAL_DEMO_STATE: DemoState = {
       kind: "General",
       registration: "Open",
       lecturer: "Dr. Tunde Bello",
+      attendanceSummary: {
+        sessionsHeld: 25,
+        sessionsAttended: 17,
+        minimumPercentage: 75,
+      },
     },
     {
       id: "10000000-0000-4000-8000-000000000318",
@@ -135,6 +163,11 @@ const INITIAL_DEMO_STATE: DemoState = {
       kind: "Elective",
       registration: "Closed",
       lecturer: "Prof. Ada Nwosu",
+      attendanceSummary: {
+        sessionsHeld: 0,
+        sessionsAttended: 0,
+        minimumPercentage: 75,
+      },
     },
   ],
   students: [
@@ -182,7 +215,7 @@ const INITIAL_DEMO_STATE: DemoState = {
       offeringCode: "ENG 301",
       venueId: DEMO_VENUES[0]!.id,
       venue: DEMO_VENUES[0]!.name,
-      date: "2025-02-17",
+      date: "2026-10-20",
       startedAt: "2026-10-20T08:02:00Z",
       lateAfterMin: 15,
       latitude: DEMO_VENUES[0]!.latitude,
@@ -257,7 +290,8 @@ const INITIAL_DEMO_STATE: DemoState = {
       flags: [],
     },
   ],
-  enrollments: ["ENG 301", "GST 201", "CPE 305"],
+  enrollments: ["ENG 301", "GST 201"],
+  pendingRegistrations: [],
   auditEvents: [],
 };
 
@@ -343,6 +377,235 @@ export function listDemoLiveClasses(
         ];
       }),
   };
+}
+
+export function listDemoStudentCourses(): StudentCoursesResponse {
+  const items = demoState.offerings
+    .filter(
+      (offering) =>
+        demoState.enrollments.includes(offering.code) &&
+        !demoState.pendingRegistrations.includes(offering.code),
+    )
+    .map((offering) => {
+      const { sessionsHeld, sessionsAttended, minimumPercentage } =
+        offering.attendanceSummary;
+      const percentage = sessionsHeld
+        ? Math.round((sessionsAttended / sessionsHeld) * 100)
+        : 0;
+      return {
+        offering_id: offering.id,
+        course_code: offering.code,
+        course_title: offering.title,
+        lecturer_names: [offering.lecturer],
+        sessions_held: sessionsHeld,
+        sessions_attended: sessionsAttended,
+        attendance_percentage: percentage,
+        minimum_attendance_percentage: minimumPercentage,
+        below_threshold: percentage < minimumPercentage,
+      };
+    });
+  return { items };
+}
+
+export function listDemoStudentTimetable(): StudentTimetableResponse {
+  const items = demoState.offerings
+    .filter(
+      (offering) =>
+        demoState.enrollments.includes(offering.code) &&
+        !demoState.pendingRegistrations.includes(offering.code),
+    )
+    .slice(0, 2)
+    .map((offering, index) => ({
+      offering_id: offering.id,
+      course_code: offering.code,
+      course_title: offering.title,
+      venue_id: DEMO_VENUES[index % DEMO_VENUES.length]!.id,
+      venue_name: DEMO_VENUES[index % DEMO_VENUES.length]!.name,
+      starts_at: index === 0 ? "09:00:00" : "11:00:00",
+      ends_at: index === 0 ? "10:30:00" : "12:30:00",
+      live_now:
+        demoState.sessions.some(
+          (session) =>
+            session.state === "live" && session.offeringId === offering.id,
+        ),
+    }));
+  return { date: currentDemoDate(), items };
+}
+
+export function listDemoStudentAttendance(
+  offeringId: string,
+  studentId = "2021-18420",
+): StudentAttendanceResponse {
+  const offering = demoState.offerings.find(
+    (candidate) => candidate.id === offeringId,
+  );
+  if (!offering) return { items: [] };
+  const items = demoState.attendance
+    .filter(
+      (record) =>
+        record.studentId === studentId &&
+        record.offeringCode === offering.code,
+    )
+    .map((record) => {
+      const session = demoState.sessions.find(
+        (candidate) => candidate.id === record.sessionId,
+      );
+      const status: StudentAttendanceResponse["items"][number]["status"] =
+        record.status === "late" ||
+        record.status === "absent" ||
+        record.status === "excused"
+          ? record.status
+          : "present";
+      const classification: StudentAttendanceResponse["items"][number]["classification"] =
+        record.status === "suspected_proxy"
+          ? "suspected_proxy"
+          : record.status === "scan_only"
+            ? "present_no_web_log"
+            : record.status === "absent"
+              ? "absent"
+              : record.status === "excused"
+                ? "excused"
+                : record.status === "late"
+                  ? "web_only_unverified"
+                  : "verified";
+      return {
+        session_id: record.sessionId,
+        date: session?.date ?? currentDemoDate(),
+        status,
+        classification,
+        override_reason: record.status === "excused" ? "Approved excusal" : null,
+      };
+    });
+  return { items };
+}
+
+export function listDemoPendingRegistrations(): PendingRegistrationsResponse {
+  return {
+    items: demoState.offerings
+      .filter((offering) =>
+        demoState.pendingRegistrations.includes(offering.code),
+      )
+      .map((offering) => ({
+        offering_id: offering.id,
+        course_code: offering.code,
+        course_title: offering.title,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      })),
+  };
+}
+
+export function searchDemoOfferings(
+  query: SearchOfferingsQuery,
+): SearchOfferingsResponse {
+  const matching = demoState.offerings.filter((offering) => {
+    const searchText = `${offering.code} ${offering.title} ${offering.lecturer}`;
+    const departmentMatches =
+      !query.department_id ||
+      query.department_id === demoDepartmentId(offering.department);
+    const levelMatches = !query.level || query.level === Number.parseInt(offering.level, 10);
+    const kindMatches =
+      !query.kind ||
+      query.kind === (offering.kind === "General" ? "general" : "departmental");
+    return (
+      searchText.toLowerCase().includes(query.q.toLowerCase()) &&
+      departmentMatches &&
+      levelMatches &&
+      kindMatches
+    );
+  });
+  const offset = query.offset ?? 0;
+  const limit = query.limit ?? 50;
+  const items: SearchOfferingsResponse["items"] = matching
+    .slice(offset, offset + limit)
+    .map((offering) => {
+      const pending = demoState.pendingRegistrations.includes(offering.code);
+      const registered =
+        demoState.enrollments.includes(offering.code) && !pending;
+      return {
+        offering_id: offering.id,
+        course_id: offering.id,
+        course_code: offering.code,
+        course_title: offering.title,
+        code: offering.code,
+        title: offering.title,
+        department_id: demoDepartmentId(offering.department),
+        department_name: offering.department,
+        level: Number.parseInt(offering.level, 10),
+        kind: offering.kind === "General" ? "general" : "departmental",
+        registration_mode:
+          offering.registration === "Open"
+            ? "open"
+            : offering.registration === "Approval"
+              ? "approval"
+              : "closed",
+        lecturers: [offering.lecturer],
+        registration_status: pending
+          ? "pending"
+          : registered
+            ? "approved"
+            : "none",
+        is_registered: registered,
+        is_pending: pending,
+        semester_id: "10000000-0000-4000-8000-000000000002",
+        semester: "Semester 2",
+        rank: 1,
+      };
+    });
+  return {
+    items,
+    limit,
+    offset,
+    has_more: offset + limit < matching.length,
+  };
+}
+
+export function registerDemoOffering(offeringId: string): RegistrationResponse | null {
+  const offering = demoState.offerings.find(
+    (candidate) => candidate.id === offeringId,
+  );
+  if (!offering || offering.registration === "Closed") return null;
+  const pending = offering.registration === "Approval";
+  updateDemoState((current) => ({
+    ...current,
+    enrollments: pending
+      ? current.enrollments
+      : [...new Set([...current.enrollments, offering.code])],
+    pendingRegistrations: pending
+      ? [...new Set([...current.pendingRegistrations, offering.code])]
+      : current.pendingRegistrations,
+  }));
+  return {
+    student_id: "20000000-0000-4000-8000-000000000001",
+    matric_no: "2021-18420",
+    display_name: "Amara Okafor",
+    department_id: demoDepartmentId(offering.department),
+    level: Number.parseInt(offering.level, 10),
+    status: pending ? "pending" : "approved",
+    created_at: new Date().toISOString(),
+    approved_at: pending ? null : new Date().toISOString(),
+    on_roster: !pending,
+  };
+}
+
+function demoDepartmentId(department: string): string {
+  return department === "Computer Engineering"
+    ? "10000000-0000-4000-8000-000000000004"
+    : department === "Electrical Engineering"
+      ? "10000000-0000-4000-8000-000000000005"
+      : "10000000-0000-4000-8000-000000000006";
+}
+
+function currentDemoDate(): string {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 export function createDemoSession(
