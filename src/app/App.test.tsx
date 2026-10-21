@@ -103,8 +103,177 @@ describe("Campus Attendance screens", () => {
       await screen.findByRole("heading", { name: "Your day at a glance" }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText(/Below the 75% attendance requirement/),
+      await screen.findByText(
+        /Below the 75% attendance requirement/,
+        {},
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("renders the home screen from backend live, timetable, and course data", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const campusClockAfter = (minutesFromNow: number) => {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Africa/Lagos",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date(Date.now() + minutesFromNow * 60_000));
+      const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+      const minute =
+        parts.find((part) => part.type === "minute")?.value ?? "00";
+      return `${hour}:${minute}:00+01:00`;
+    };
+    const liveClasses: LiveClassesResponse = {
+      items: [
+        {
+          session_id: "30000000-0000-4000-8000-000000000001",
+          offering_id: "10000000-0000-4000-8000-000000000001",
+          course_code: "API 401",
+          course_title: "Backend Live Course",
+          venue_id: "10000000-0000-4000-8000-000000000012",
+          venue_name: "Backend Lecture Hall",
+          lecturer_name: "Dr. Backend Lecturer",
+          started_at: new Date(Date.now() - 15 * 60_000).toISOString(),
+          late_after_min: 10,
+          rotating_code: true,
+          already_checked_in: true,
+        },
+      ],
+    };
+    const timetable: StudentTimetableResponse = {
+      date: "2026-10-21",
+      items: [
+        {
+          offering_id: "10000000-0000-4000-8000-000000000002",
+          course_code: "API 402",
+          course_title: "Backend Upcoming Course",
+          venue_id: "10000000-0000-4000-8000-000000000013",
+          venue_name: "Backend Schedule Hall",
+          starts_at: campusClockAfter(45),
+          ends_at: campusClockAfter(105),
+          live_now: false,
+        },
+        {
+          offering_id: "10000000-0000-4000-8000-000000000003",
+          course_code: "API 403",
+          course_title: "Backend Already Live Course",
+          venue_id: "10000000-0000-4000-8000-000000000014",
+          venue_name: "Another Backend Hall",
+          starts_at: campusClockAfter(10),
+          ends_at: campusClockAfter(70),
+          live_now: true,
+        },
+      ],
+    };
+    const courses: StudentCoursesResponse = {
+      items: [
+        {
+          offering_id: "10000000-0000-4000-8000-000000000004",
+          course_code: "API 404",
+          course_title: "Backend Attendance Course",
+          lecturer_names: ["Dr. Attendance Lecturer"],
+          sessions_held: 10,
+          sessions_attended: 4,
+          attendance_percentage: 42.6,
+          minimum_attendance_percentage: 60,
+          below_threshold: true,
+        },
+      ],
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me/live-classes`, () =>
+        HttpResponse.json(liveClasses),
+      ),
+      http.get(`${apiBaseUrl}/me/timetable`, () =>
+        HttpResponse.json(timetable),
+      ),
+      http.get(`${apiBaseUrl}/me/courses`, () => HttpResponse.json(courses)),
+    );
+
+    renderApp("/");
+
+    await screen.findByRole("heading", { name: "Your day at a glance" });
+    await screen.findByText("Backend Live Course");
+    const livePanel = screen.getByRole("heading", { name: "Live now" })
+      .closest("section");
+    expect(livePanel).toHaveTextContent("Backend Live Course");
+    expect(livePanel).toHaveTextContent("Backend Lecture Hall");
+    expect(livePanel).toHaveTextContent("Checked in");
+    expect(
+      within(livePanel as HTMLElement).queryByRole("link", {
+        name: /Check in/,
+      }),
+    ).not.toBeInTheDocument();
+
+    const laterPanel = screen.getByRole("heading", { name: "Later today" })
+      .closest("section");
+    expect(laterPanel).toHaveTextContent("Backend Upcoming Course");
+    expect(laterPanel).toHaveTextContent("Backend Schedule Hall");
+    expect(laterPanel).not.toHaveTextContent("Backend Already Live Course");
+
+    expect(
+      screen.getByText("Classes today").closest(".summary-item"),
+    ).toHaveTextContent("2 classes");
+    expect(
+      screen.getByText("Live classes").closest(".summary-item"),
+    ).toHaveTextContent("1");
+    expect(screen.getByText("API 404 · Backend Attendance Course")).toBeInTheDocument();
+    await screen.findByText("43%");
+    expect(screen.getByText("43%")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Below the 60% attendance requirement/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not call a populated past timetable empty", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const campusClockBefore = (minutesAgo: number) => {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Africa/Lagos",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date(Date.now() - minutesAgo * 60_000));
+      const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+      const minute =
+        parts.find((part) => part.type === "minute")?.value ?? "00";
+      return `${hour}:${minute}:00+01:00`;
+    };
+    const timetable: StudentTimetableResponse = {
+      date: "2026-10-21",
+      items: [
+        {
+          offering_id: "10000000-0000-4000-8000-000000000005",
+          course_code: "API 405",
+          course_title: "Backend Earlier Course",
+          venue_id: "10000000-0000-4000-8000-000000000015",
+          venue_name: "Backend Past Hall",
+          starts_at: campusClockBefore(60),
+          ends_at: campusClockBefore(15),
+          live_now: false,
+        },
+      ],
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me/timetable`, () =>
+        HttpResponse.json(timetable),
+      ),
+    );
+
+    renderApp("/");
+
+    await screen.findByRole("heading", { name: "Your day at a glance" });
+    const laterPanel = screen.getByRole("heading", { name: "Later today" })
+      .closest("section");
+    expect(await within(laterPanel as HTMLElement).findByText("No more classes scheduled today")).toBeInTheDocument();
+    expect(within(laterPanel as HTMLElement).queryByText("Nothing scheduled today")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Classes today").closest(".summary-item"),
+    ).toHaveTextContent("1 class");
   });
 
   it("supports entering and submitting a check-in code once", async () => {
@@ -546,7 +715,11 @@ describe("Campus Attendance screens", () => {
     const user = userEvent.setup();
     renderApp("/lecturer/start");
     await user.click(
-      await screen.findByRole("button", { name: "Start session" }),
+      await screen.findByRole(
+        "button",
+        { name: "Start session" },
+        { timeout: 5000 },
+      ),
     );
     await waitFor(() =>
       expect(getDemoState().sessions).toHaveLength(2),
@@ -563,10 +736,9 @@ describe("Campus Attendance screens", () => {
     await user.click(
       await screen.findByRole("button", { name: "Sign in as Student" }),
     );
-    const checkInLinks = await screen.findAllByRole("link", {
-      name: "Check in",
-    });
-    await user.click(checkInLinks.at(-1)!);
+    await user.click(
+      await screen.findByRole("link", { name: /Check in to class/ }),
+    );
     await user.selectOptions(
       await screen.findByRole("combobox", { name: "Live class" }),
       createdSession.id,

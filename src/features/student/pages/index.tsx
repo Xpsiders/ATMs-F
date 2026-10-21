@@ -34,9 +34,8 @@ export function Dashboard() {
   const currentMinutes = getCurrentCampusMinutes(now);
   const laterToday =
     timetable.data?.items.filter((item) => {
-      const [hours = "0", minutes = "0"] = item.starts_at.split(":");
-      const startsAt = Number(hours) * 60 + Number(minutes);
-      return startsAt > currentMinutes;
+      const startsAt = getCampusMinutesFromTime(item.starts_at);
+      return !item.live_now && startsAt !== null && startsAt > currentMinutes;
     }) ?? [];
 
   return (
@@ -115,8 +114,9 @@ export function Dashboard() {
                   live
                   title={item.course_title}
                   code={item.course_code}
-                  time={`${formatClock(item.started_at)} · ${item.venue_name}`}
-                  place={item.lecturer_name}
+                  time={formatClock(item.started_at)}
+                  place={item.venue_name}
+                  checkedIn={item.already_checked_in}
                 />
               ))
             ) : (
@@ -147,6 +147,8 @@ export function Dashboard() {
                 />
               ))}
             </div>
+          ) : timetable.data?.items.length ? (
+            <p className="empty-state">No more classes scheduled today</p>
           ) : (
             <p className="empty-state">Nothing scheduled today</p>
           )}
@@ -201,8 +203,46 @@ export function Dashboard() {
 
 function formatClock(value: string): string {
   if (value.includes("T")) return formatTime(value);
-  const [hours = "0", minutes = "0"] = value.split(":");
-  return `${Number(hours).toString().padStart(2, "0")}:${minutes}`;
+  const parsed = parseTime(value);
+  if (!parsed) return value;
+  const { hours, minutes, offsetMinutes } = parsed;
+  const campusMinutes =
+    ((hours * 60 + minutes - (offsetMinutes ?? 60) + 60) % 1440 + 1440) %
+    1440;
+  const campusHours = Math.floor(campusMinutes / 60);
+  const campusMinute = campusMinutes % 60;
+  return `${campusHours.toString().padStart(2, "0")}:${campusMinute.toString().padStart(2, "0")}`;
+}
+
+function getCampusMinutesFromTime(value: string): number | null {
+  if (value.includes("T")) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : getCurrentCampusMinutes(date);
+  }
+  const parsed = parseTime(value);
+  if (!parsed) return null;
+  const minutes =
+    parsed.hours * 60 + parsed.minutes - (parsed.offsetMinutes ?? 60) + 60;
+  return ((minutes % 1440) + 1440) % 1440;
+}
+
+function parseTime(value: string) {
+  const match =
+    /^(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|([+-])(\d{2}):?(\d{2}))?$/.exec(
+      value,
+    );
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  const offsetHours = Number(match[5] ?? 0);
+  const offsetMinutesPart = Number(match[6] ?? 0);
+  if (offsetHours > 23 || offsetMinutesPart > 59) return null;
+  const offsetMinutes = match[3]
+    ? (match[4] === "-" ? -1 : 1) *
+      (offsetHours * 60 + offsetMinutesPart)
+    : null;
+  return { hours, minutes, offsetMinutes };
 }
 
 function getCurrentCampusMinutes(now: Date): number {
@@ -247,12 +287,14 @@ function StudentEmptyState() {
 
 export function ScheduleCard({
   live,
+  checkedIn = false,
   title,
   code,
   time,
   place,
 }: {
   live?: boolean;
+  checkedIn?: boolean;
   title: string;
   code: string;
   time: string;
@@ -281,9 +323,15 @@ export function ScheduleCard({
         </p>
       </div>
       {live && (
-        <Link className="small-checkin" to="/check-in">
-          Check in <Icon name="arrow" size={14} />
-        </Link>
+        checkedIn ? (
+          <span className="status-chip verified schedule-checkin-status">
+            <Icon name="check" size={13} /> Checked in
+          </span>
+        ) : (
+          <Link className="small-checkin" to="/check-in">
+            Check in <Icon name="arrow" size={14} />
+          </Link>
+        )
       )}
     </div>
   );

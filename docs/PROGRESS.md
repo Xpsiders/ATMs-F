@@ -20,7 +20,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Auth | Forgot password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling a guessed endpoint. |
 | Auth | Reset password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling guessed endpoints. |
 | Auth | Change password | Placeholder | Real mode calls the supported change-password operation; mock mode does not change a demo account password. |
-| Student | Home / daily schedule / attendance snapshot | Done | Loads live classes from `/me/live-classes`, later classes from `/me/timetable`, and threshold attendance from `/me/courses`; each resource has loading/error handling and the screen has explicit no-live, no-schedule and no-course empty states. |
+| Student | Home / daily schedule / attendance snapshot | Done | Loads live classes from `/me/live-classes`, later classes from `/me/timetable`, and threshold attendance from `/me/courses`; renders API venue and already-checked-in status, parses offset-qualified schedule times in Africa/Lagos, and distinguishes an empty timetable from a day with no remaining classes. Resources have loading/error handling and explicit empty states. |
 | Student | Find classes / search and filters | Done | Debounced search and department/level/kind filters call typed `/offerings/search`; results use API registration status and display closed, pending, approved, and available states. |
 | Student | Register / request to join a class | Done | `POST /offerings/{id}/registrations` registers open offerings or requests approval; mutation errors render on the offering, closed offerings are disabled, and pending status is visible. The contract has no specific closure-reason field, so the UI explains only that registration is closed. |
 | Student | My courses | Done | `/me/courses` drives course cards and attendance percentages/threshold styling; loading, API error/retry, and empty state with Find classes CTA are implemented. |
@@ -109,3 +109,14 @@ The following are not established yet: 375/768/1280 automated viewport coverage,
 | `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **384.12 kB / 115.17 kB gzip**, **24.22 kB / 7.13 kB gzip**, and **2.47 kB / 1.05 kB gzip** (total **410.81 kB / 123.35 kB gzip**); CSS was **61.35 kB / 13.12 kB gzip**. |
 
 Student home, class search and registration, course list, and attendance history now use the synced API contract in real mode, with loading, empty, error, and retry states where applicable. Mock handlers use the same generated operation types for development. The timetable's “later today” comparison uses Africa/Lagos time. No server or browser visual check was run; real-backend compatibility and automated 375/768/1280 viewport coverage remain unverified.
+
+## Student home API data mapping review
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 10 test files and 49 tests passed, including backend-shaped home responses for live status, venue, check-in state, offset-qualified timetable times, attendance threshold values, and past-class empty messaging. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.03 kB / 115.51 kB gzip**, **24.22 kB / 7.13 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.51 kB / 13.14 kB gzip**. |
+
+No server or browser visual check was run; real-backend behavior remains unverified.

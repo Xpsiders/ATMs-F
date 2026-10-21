@@ -2690,6 +2690,11 @@
     grid-column: 3;
     margin-top: 5px;
   }
+  .schedule-card .schedule-checkin-status {
+    grid-column: 3;
+    justify-self: start;
+    margin-top: 5px;
+  }
 }
 @media (max-width: 800px) {
   .sidebar {
@@ -2963,6 +2968,10 @@
   }
   .small-checkin {
     grid-column: 3;
+  }
+  .schedule-card .schedule-checkin-status {
+    grid-column: 3;
+    justify-self: start;
   }
   .quote-art {
     opacity: 0.3;
