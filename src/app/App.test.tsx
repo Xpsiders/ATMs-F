@@ -123,6 +123,8 @@ describe("Campus Attendance screens", () => {
           id: "10000000-0000-4000-8000-000000000731",
           course_code: "BIO 731",
           course_title: "API Lecturer's Assigned Course",
+          session_open: false,
+          next_timetable_slot: null,
         },
       ],
       limit: 1,
@@ -1024,6 +1026,94 @@ describe("Campus Attendance screens", () => {
     expect(screen.getByLabelText("Signed-in user")).toHaveTextContent(
       "Morgan Admin",
     );
+  });
+
+  it("does not restore the session again while navigating between lecturer pages", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const profile: CurrentUser = {
+      id: "20000000-0000-4000-8000-000000000002",
+      name: "Dr. Ngozi Eze",
+      email: "ngozi@example.test",
+      status: "active",
+      must_change_password: false,
+      roles: [
+        {
+          role: "lecturer",
+          scope_type: "department",
+          scope_id: "10000000-0000-4000-8000-000000000004",
+          department_id: "10000000-0000-4000-8000-000000000004",
+        },
+      ],
+    };
+    let profileRequests = 0;
+    server.use(
+      http.get(`${apiBaseUrl}/me`, () => {
+        profileRequests += 1;
+        return HttpResponse.json(profile);
+      }),
+    );
+    renderApp("/", true, "lecturer");
+
+    expect(
+      await screen.findByRole("heading", { name: "Welcome, Dr. Ngozi Eze" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer");
+    expect(profileRequests).toBe(1);
+
+    await user.click(screen.getByRole("link", { name: "Live session" }));
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Engineering Mathematics III" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer/live");
+
+    await user.click(screen.getByRole("link", { name: "Session reports" }));
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Session report" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer/report");
+
+    await user.click(screen.getByRole("link", { name: "My teaching" }));
+    await screen.findByRole("heading", { name: "Welcome, Dr. Ngozi Eze" });
+    await user.click(screen.getByRole("link", { name: "Start a session" }));
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Start an attendance session" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer/start");
+    const startButton = await screen.findByRole(
+      "button",
+      { name: "Start session" },
+      { timeout: 5000 },
+    );
+    expect(startButton).toBeEnabled();
+    await user.click(startButton);
+    expect(
+      await screen.findByText("726 519", {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer/live");
+    const startedSessionId = new URLSearchParams(window.location.search).get(
+      "sessionId",
+    );
+    expect(startedSessionId).toBeTruthy();
+    expect(
+      getDemoState().sessions.some(
+        (session) => session.id === startedSessionId,
+      ),
+    ).toBe(true);
+    expect(profileRequests).toBe(1);
   });
 
   it("redirects a user without the required role to 403 and their home", async () => {

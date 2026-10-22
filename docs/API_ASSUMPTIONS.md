@@ -14,7 +14,7 @@ operations and payloads; frontend aliases are maintained in
 | `POST /auth/signup-claim` | Requires `institution_id`, `matric_no`, and `email`; returns an enumeration-safe 202 acknowledgement. |
 | `POST /auth/verify-email` | Requires `institution_id`, `matric_no`, six-digit `code`, and `password`; returns a token response. |
 | `POST /auth/password/change` | Requires `current_password` and `new_password`. |
-| `GET /me/offerings` | Returns paginated offerings visible to the authenticated lecturer; `id` is generated as UUID. Additional course display fields are allowed but not specified by the schema. |
+| `GET /me/offerings` | Returns paginated offerings visible to the authenticated user; each item has an `id`, `session_open`, and nullable `next_timetable_slot`. Additional course display fields are allowed but not specified by the schema. |
 | `GET /venues` | Returns paginated venue items with `id`, `name`, `latitude`, `longitude`, and `radius_meters`. |
 | `GET /me/live-classes` | Returns live sessions visible to the authenticated student, including session/offering/venue IDs and course display fields. |
 | `GET /me/timetable` | Returns today's timetable entries with offering, course, venue, start/end time, and live indicator. |
@@ -38,10 +38,10 @@ student-claim requests. The repository does not provide an institution-specific
 default.
 
 `GET /me/offerings` is used for the lecturer's selector rather than the
-institution-wide `GET /offerings`. The generated catalogue item guarantees an
-ID but permits additional fields; the selector displays `course_code` /
-`course_title` or `code` / `title` when returned, and never substitutes an ID
-for the course label.
+institution-wide `GET /offerings`. Its generated item guarantees an ID,
+`session_open`, and `next_timetable_slot`, but permits additional course
+display fields; the selector displays `course_code` / `course_title` or `code`
+/ `title` when returned, and never substitutes an ID for the course label.
 
 The `POST /sessions` request schema forbids additional properties. The UI sends
 only the two selected IDs and the two session options; venue coordinates and

@@ -183,7 +183,11 @@ export function App() {
   const [online, setOnline] = useState(navigator.onLine);
   const location = useLocation();
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
   const initialRoute = useRef(location.pathname);
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
   const loadCurrentUser = useCallback(async () => {
     const user = await apiRequest<CurrentUser>("/me");
     const workspaceRole = getWorkspaceRole(user);
@@ -201,7 +205,7 @@ export function App() {
         if (cancelled) return;
         if (!restored) {
           if (!authPaths.includes(initialRoute.current))
-            navigate("/login", {
+            navigateRef.current("/login", {
               replace: true,
               state: { from: initialRoute.current },
             });
@@ -211,8 +215,11 @@ export function App() {
         if (
           !cancelled &&
           (initialRoute.current === "/" || initialRoute.current === "/login")
-        )
-          navigate(DEMO_ROLE_ROUTES[workspaceRole], { replace: true });
+        ) {
+          navigateRef.current(DEMO_ROLE_ROUTES[workspaceRole], {
+            replace: true,
+          });
+        }
       } catch (caught) {
         if (!(caught instanceof ApiError) || caught.status !== 401)
           setProfileError(formatApiError(caught));
@@ -223,7 +230,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadCurrentUser, mockMode, navigate]);
+  }, [loadCurrentUser, mockMode]);
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setCurrentUser(null);
@@ -609,9 +616,11 @@ export function App() {
               <Route
                 path="/"
                 element={
-                  <RoleGuard role={role} allowedRoles={["student"]}>
+                  role === "student" ? (
                     <Dashboard />
-                  </RoleGuard>
+                  ) : (
+                    <Navigate to={DEMO_ROLE_ROUTES[role]} replace />
+                  )
                 }
               />
               <Route path="/signup" element={<AuthFlow type="signup" />} />

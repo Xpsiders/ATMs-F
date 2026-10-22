@@ -1,6 +1,7 @@
 import type { components } from "@/api/schema";
 import type {
   LiveClassesResponse,
+  OfferingsResponse,
   PendingRegistrationsResponse,
   RegistrationResponse,
   SearchOfferingsQuery,
@@ -321,7 +322,7 @@ export function resetDemoData(): void {
 
 export function listDemoOfferings(
   lecturerName?: string,
-): components["schemas"]["PagedCatalogueItems"] {
+): OfferingsResponse {
   const offerings = lecturerName
     ? demoState.offerings.filter((offering) => offering.lecturer === lecturerName)
     : demoState.offerings;
@@ -330,6 +331,10 @@ export function listDemoOfferings(
       id,
       course_code: code,
       course_title: title,
+      session_open: demoState.sessions.some(
+        (session) => session.offeringId === id && session.state === "live",
+      ),
+      next_timetable_slot: null,
     })),
     limit: offerings.length,
     offset: 0,

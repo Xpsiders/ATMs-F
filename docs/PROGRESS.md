@@ -161,3 +161,37 @@ generic “Registration is closed for this offering” explanation.
 | `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.04 kB / 115.54 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
 
 Real-backend behavior and browser viewport checks were not performed.
+
+## Lecturer navigation reset and API contract refresh
+
+The startup session-restoration effect depended on React Router's `navigate`
+callback. That callback changes as the route changes, so when a lecturer loaded
+the app at `/`, each navigation reran session restoration and reapplied the
+initial lecturer-home redirect. This returned the user to `/lecturer` before
+`POST /sessions` could be sent. The effect now uses a ref to the latest
+navigation callback and runs only for app startup; the root route also directs
+non-students to their role-specific home. A regression test starts as a
+lecturer at `/`, visits the Live and Report routes and starts a session, while
+asserting the profile is loaded only once.
+
+The backend API copy adds `/sessions/{id}/live`,
+`/offerings/{id}/timetable` (+ slot operations), teaching requests, registration
+approvals, and bulk registration approval. It changes `GET /me/offerings` to
+include `session_open` and `next_timetable_slot`. Generated types required
+updating the mock offering response. `pnpm sync:api` copied the backend spec but
+type generation found malformed flow mappings in the upstream YAML (around
+lines 1250 and 1297). Those two mappings were formatted as block YAML in the
+local copy only, after which `pnpm gen:api` succeeded. The backend source
+remains unchanged; sync will fail again until its YAML syntax is corrected
+upstream.
+
+| Command | Result |
+|---|---|
+| `pnpm sync:api` | Copy completed; type generation failed on malformed upstream YAML flow mappings at lines 1250 and 1297. |
+| `pnpm gen:api` | Passed after formatting those two mappings in the local API copy. |
+| `pnpm lint` | Passed; 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed after updating the mock offering response to the refreshed generated schema. |
+| `pnpm test --maxWorkers=1` | Passed; 10 test files and 53 tests, including the lecturer root-to-route navigation and session-creation regression. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.11 kB / 115.54 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+
+No servers were started. The real backend was not retested from a browser.
