@@ -109,12 +109,14 @@ The UI treats a course as the product concept: admins create or select a course,
 
 An optional lecturer account UUID can be entered in the same form. After an offering is created, the UI reads its assignments and sends the current lecturer IDs plus the new one via `PUT /offerings/{id}/lecturers`, preserving existing assignments. Existing course offerings retain their per-row “Manage lecturers” action. When `POST /offerings` returns a pending teaching request (`202`), no offering exists yet to assign; the UI explains that the lecturer can be assigned after approval.
 
+Code-review follow-up: the offerings list refresh (`setReloadKey`/`setCatalogueReloadKey`/`setQuery`) now runs after the lecturer `PUT` completes, so the refreshed list no longer renders “No lecturers assigned” beneath an assignment-success banner. The create flow also inspects `SetOfferingLecturersResponse.lecturer_ids`; if the server does not record the new lecturer, it throws so the existing catch reports that the course is available but the lecturer could not be assigned, rather than claiming success.
+
 | Command | Result |
 | --- | --- |
 | `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
 | `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
 | `pnpm test --maxWorkers=1` | Passed; 13 test files and 70 tests passed. Coverage includes creating a course and its semester availability with generated payload types, optional lecturer assignment on new and existing courses, assignment retention, refreshing/searching the course, and mock persistence/search. |
-| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.45 kB / 13.46 kB gzip**; JS chunks were **389.11 kB / 116.33 kB**, **33.34 kB / 8.34 kB**, and **31.92 kB / 8.94 kB gzip**. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.45 kB / 13.46 kB gzip**; JS chunks were **389.11 kB / 116.33 kB**, **33.44 kB / 8.38 kB**, and **31.92 kB / 8.94 kB gzip**. |
 
 | Command                    | Result                                                                                                                                                                                 |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

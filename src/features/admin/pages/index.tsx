@@ -1492,9 +1492,6 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
         return;
       }
       offeringCreated = true;
-      setReloadKey((key) => key + 1);
-      setCatalogueReloadKey((key) => key + 1);
-      if (resolvedCourseCode) setQuery(resolvedCourseCode);
 
       const lecturerId = courseLecturerId.trim();
       if (lecturerId) {
@@ -1511,15 +1508,22 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
               lecturerId,
             ],
           };
-          await apiRequest<SetOfferingLecturersResponse>(
+          const updated = await apiRequest<SetOfferingLecturersResponse>(
             `/offerings/${encodeURIComponent(result.id)}/lecturers`,
             {
               method: "PUT",
               body: JSON.stringify(assignment),
             },
           );
+          if (!updated.lecturer_ids.includes(lecturerId)) {
+            throw new Error("The server did not record the lecturer assignment.");
+          }
         }
       }
+
+      setReloadKey((key) => key + 1);
+      setCatalogueReloadKey((key) => key + 1);
+      if (resolvedCourseCode) setQuery(resolvedCourseCode);
 
       const courseLabel = resolvedCourseCode || "Course";
       const semesterLabel =
