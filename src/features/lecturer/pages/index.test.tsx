@@ -14,7 +14,10 @@ import type {
 import { server } from "@/test/setup";
 import { resetDemoData } from "@/mocks/store";
 import { LiveSession, Report } from "./index";
-import { rememberLiveSession } from "../liveSessionStorage";
+import {
+  rememberLiveSession,
+  rememberSessionReport,
+} from "../liveSessionStorage";
 
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
@@ -36,6 +39,8 @@ const lecturer = {
 } satisfies CurrentUser;
 
 beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   vi.stubEnv("VITE_USE_MOCKS", "false");
   resetDemoData();
 });
@@ -165,12 +170,65 @@ describe("lecturer session data", () => {
         HttpResponse.json(report),
       ),
     );
-    renderLecturerPage(<Report />, `/lecturer/report?sessionId=${sessionId}`);
+    renderLecturerPage(<Report user={lecturer} />, `/lecturer/report?sessionId=${sessionId}`);
 
     expect(await screen.findAllByText("Backend Student")).toHaveLength(2);
     expect(screen.getByText("API-1001")).toBeInTheDocument();
     expect(document.querySelector(".report-summary b")).toHaveTextContent("1");
     expect(screen.queryByText("Amara Okafor")).not.toBeInTheDocument();
+  });
+
+  it("opens a completed report from saved session history without a URL ID", async () => {
+    const report: SessionReportResponse = {
+      session_id: sessionId,
+      scanner_coverage: { state: "full", offline_intervals: [] },
+      items: [
+        {
+          student_record_id: "60000000-0000-4000-8000-000000000001",
+          matric_no: "API-1001",
+          display_name: "Completed Session Student",
+          department_id: "70000000-0000-4000-8000-000000000001",
+          level: 400,
+          on_roster: true,
+          classification: "verified",
+          status: "present",
+        },
+      ],
+      limit: 200,
+      offset: 0,
+      has_more: false,
+    };
+    const session: SessionCodeResponse["session"] = {
+      id: sessionId,
+      offering_id: "40000000-0000-4000-8000-000000000001",
+      venue_id: "50000000-0000-4000-8000-000000000001",
+      started_at: "2026-10-23T07:00:00Z",
+      latitude: 6.5,
+      longitude: 3.4,
+      radius_meters: 40,
+      rotating_code: true,
+      late_after_min: 10,
+    };
+    rememberSessionReport(
+      lecturer.id,
+      session,
+      "API 401 · Backend Data Systems",
+    );
+    const requestedUrls: string[] = [];
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/report`, ({ request }) => {
+        requestedUrls.push(request.url);
+        return HttpResponse.json(report);
+      }),
+    );
+    renderLecturerPage(<Report user={lecturer} />, "/lecturer/report");
+
+    expect(await screen.findAllByText("Completed Session Student")).toHaveLength(
+      2,
+    );
+    expect(requestedUrls).toContain(
+      `${apiBaseUrl}/sessions/${sessionId}/report?limit=200&offset=0`,
+    );
   });
 
   it("downloads the report PDF from the session endpoint", async () => {
@@ -210,7 +268,7 @@ describe("lecturer session data", () => {
       .mockImplementation(() => {});
     try {
       renderLecturerPage(
-        <Report />,
+        <Report user={lecturer} />,
         `/lecturer/report?sessionId=${sessionId}`,
       );
       await user.click(await screen.findByRole("button", { name: "Export PDF" }));

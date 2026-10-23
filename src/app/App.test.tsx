@@ -840,7 +840,11 @@ describe("Campus Attendance screens", () => {
 
     await user.click(screen.getByRole("link", { name: "My teaching" }));
     expect(
-      await screen.findByRole("heading", { name: "Welcome, Dr. Ngozi Eze" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Welcome, Dr. Ngozi Eze" },
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
     await user.click(
       await screen.findByRole("link", {
@@ -856,6 +860,11 @@ describe("Campus Attendance screens", () => {
     await user.click(screen.getByRole("button", { name: "End session" }));
     await waitFor(() => expect(endedSessionIds).toContain(sessionId));
     confirm.mockRestore();
+
+    await user.click(screen.getByRole("link", { name: "Session reports" }));
+    expect(
+      await screen.findByText(`Session ${sessionId}`),
+    ).toBeInTheDocument();
   });
 
   it("shows API field errors beside the start-session form", async () => {

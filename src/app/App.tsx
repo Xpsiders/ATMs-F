@@ -40,6 +40,7 @@ import {
   type DemoRole,
 } from "@/mocks/auth";
 import { resetDemoData } from "@/mocks/store";
+import { clearRememberedSessions } from "@/features/lecturer/liveSessionStorage";
 import { formatInitials } from "@/shared/lib/format";
 import {
   getAcademicLevel,
@@ -379,6 +380,7 @@ export function App() {
         }}
         onResetDemo={() => {
           clearMockSession();
+          if (currentUser) clearRememberedSessions(currentUser.id);
           resetDemoData();
           clearAuth();
           navigate("/login", { replace: true });
@@ -586,7 +588,11 @@ export function App() {
             {mockMode && (
               <button
                 className="text-button demo-reset-topbar"
-                onClick={resetDemoData}
+                onClick={() => {
+                  if (role === "lecturer")
+                    clearRememberedSessions(currentUser.id);
+                  resetDemoData();
+                }}
               >
                 Reset demo data
               </button>
@@ -767,7 +773,7 @@ export function App() {
                 path="/lecturer/report"
                 element={
                   <RoleGuard role={role} allowedRoles={["lecturer"]}>
-                    <LecturerReport />
+                    <LecturerReport user={currentUser} />
                   </RoleGuard>
                 }
               />

@@ -37,7 +37,9 @@ import { useDemoState } from "@/mocks/useDemoState";
 import {
   forgetLiveSession,
   getRememberedLiveSession,
+  getRememberedSessionReports,
   rememberLiveSession,
+  rememberSessionReport,
 } from "../liveSessionStorage";
 
 type ReportDisplayRow = {
@@ -181,6 +183,7 @@ export function Teaching({ user }: { user: CurrentUser }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const sessionReports = getRememberedSessionReports(user.id);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -280,6 +283,39 @@ export function Teaching({ user }: { user: CurrentUser }) {
           </p>
         )}
       </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Recent session reports</h2>
+            <p>Reports remain available after a session ends.</p>
+          </div>
+        </div>
+        {sessionReports.length ? (
+          sessionReports.map((report) => (
+            <div className="teaching-row" key={report.sessionId}>
+              <div>
+                <b>{report.offeringLabel}</b>
+                <span>
+                  Session started{" "}
+                  {new Date(report.startedAt).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </span>
+              </div>
+              <Link
+                to={`/lecturer/report?sessionId=${encodeURIComponent(report.sessionId)}`}
+                className="text-button"
+                aria-label={`View session report for ${report.offeringLabel}`}
+              >
+                View session report <Icon name="arrow" size={15} />
+              </Link>
+            </div>
+          ))
+        ) : (
+          <p className="empty-state">Session reports will appear here after you start a session.</p>
+        )}
+      </section>
     </div>
   );
 }
@@ -350,6 +386,14 @@ export function StartSession({ user }: { user: CurrentUser }) {
       rotating_code: rotatingCode,
       late_after_min: lateAfterMin,
     };
+    const selectedOffering = offerings.find(
+      (offering) => offering.id === offeringId,
+    );
+    if (!selectedOffering) {
+      setError("The selected offering is no longer available. Reload and try again.");
+      setSaving(false);
+      return;
+    }
     try {
       const result = await apiRequest<StartSessionResponse>("/sessions", {
         method: "POST",
@@ -360,6 +404,11 @@ export function StartSession({ user }: { user: CurrentUser }) {
         sessionId: result.session.id,
         offeringId: result.session.offering_id,
       });
+      rememberSessionReport(
+        user.id,
+        result.session,
+        getOfferingLabel(selectedOffering),
+      );
       navigate(
         `/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`,
       );
@@ -994,10 +1043,12 @@ export function LiveSession({ user }: { user: CurrentUser }) {
   );
 }
 
-export function Report() {
+export function Report({ user }: { user: CurrentUser }) {
+  const navigate = useNavigate();
   const mock = isMockMode();
   const demoState = useDemoState(mock);
   const [searchParams] = useSearchParams();
+  const sessionReports = getRememberedSessionReports(user.id);
   const [filter, setFilter] = useState("All statuses");
   const [department, setDepartment] = useState("All departments");
   const [selected, setSelected] = useState("");
@@ -1019,6 +1070,7 @@ export function Report() {
   const [reloadReportKey, setReloadReportKey] = useState(0);
   const sessionId =
     searchParams.get("sessionId") ??
+    sessionReports[0]?.sessionId ??
     (mock
       ? (demoState.sessions.find((session) => session.state === "live")?.id ??
         "")
@@ -1218,6 +1270,31 @@ export function Report() {
           </div>
         }
       />
+      {sessionReports.length > 1 && (
+        <label className="field-label">
+          Choose a session report
+          <select
+            className="field-control"
+            aria-label="Choose a session report"
+            value={sessionId}
+            onChange={(event) =>
+              navigate(
+                `/lecturer/report?sessionId=${encodeURIComponent(event.target.value)}`,
+              )
+            }
+          >
+            {sessionReports.map((report) => (
+              <option key={report.sessionId} value={report.sessionId}>
+                {report.offeringLabel} ·{" "}
+                {new Date(report.startedAt).toLocaleString(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {message && (
         <div className="form-info" role="status">
           {message}

@@ -37,7 +37,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Lecturer | Board mode / power-cut fallback | Done | Portrait-friendly code/count display, fullscreen/Escape handling and feature-detected Wake Lock are implemented. |
 | Lecturer | Fixed-code confirmation and scanner coverage | Done | Confirmed fixed-code action updates shared session state; scanner scenario updates shared scanner state and warnings appear. |
 | Lecturer | Live roster | Done | Roster reads shared student attendance records and links to the report. |
-| Lecturer | Session report / report table and filters | Partial | Real mode loads every page from `/sessions/{id}/report`; rows, classification totals, scanner coverage, filtering, and overrides use API data. Mock mode continues to use fixtures. The schema omits web/scan timestamps and department names, so the report shows unavailable timestamps and department IDs. |
+| Lecturer | Session report / report table and filters | Partial | Real mode loads every page from `/sessions/{id}/report`; rows, classification totals, scanner coverage, filtering, and overrides use API data. Locally started session IDs and course labels are retained in browser storage so finished reports can be reopened from Teaching or Session reports. Mock mode continues to use fixtures. The schema omits web/scan timestamps and department names, so the report shows unavailable timestamps and department IDs. |
 | Lecturer | Single and bulk attendance override | Done | Dialog validates “other” explanation, shows per-row mock results, updates shared attendance and records mock audit entries. |
 | Lecturer | Print attendance sheet and PDF | Done | The printable roster uses `/sessions/{id}/roster-sheet` in real mode and offers the server-generated PDF at `?format=pdf`; mock mode uses the fixture roster and browser print. |
 | Lecturer | Lecturer enrolment | Placeholder | No lecturer enrolment flow is implemented. |
@@ -268,11 +268,11 @@ Starting a session already routed directly to its returned ID, but the sidebar's
 Live session link dropped that query parameter. The API's `/me/offerings`
 response exposes only `session_open`, not an open session ID, so the teaching
 list could not reopen a session started in the current tab. The app now retains
-the returned session and offering IDs in `sessionStorage` scoped by lecturer
-user ID, resumes that session from the Live session nav link, and offers a
-per-offering “View live session” action when the active session is known. Ending
-the session clears the remembered ID. The attendance code is never stored.
-Mock mode continues to prefer its live demo-store session.
+the returned active session and offering IDs in `sessionStorage` scoped by
+lecturer user ID, resumes that session from the Live session nav link, and offers
+a per-offering “View live session” action when the active session is known.
+Ending the session clears only the active-session pointer. The attendance code
+is never stored. Mock mode continues to prefer its live demo-store session.
 
 | Command | Result |
 |---|---|
@@ -286,3 +286,28 @@ Mock mode continues to prefer its live demo-store session.
 
 No server was started; the backend contract does not currently expose a way to
 discover open session IDs created on another device or browser tab.
+
+## Reopening reports after a session ends
+
+The active session ID is cleared after ending, which previously left the
+Session reports navigation without a report to open. Started-session metadata
+(session ID, offering ID, start time, and course label only) is now kept in
+user-scoped local storage (up to 50 sessions), separate from the active
+session pointer and attendance code. My teaching lists recent reports, and
+Session reports opens the latest one by default with a selector for other
+locally started sessions.
+The report endpoint remains the source of attendance data. Demo reset clears
+the local report references.
+
+| Command | Result |
+|---|---|
+| `pnpm test --maxWorkers=1 src/app/App.test.tsx -t "starts a session, polls its returned code, and ends that session"` | Passed; verifies the report remains reachable after the session ends. |
+| `pnpm test --maxWorkers=1 src/features/lecturer/pages/index.test.tsx` | Passed; 4 tests, including fetching a completed report from saved metadata without a session ID in the URL. |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and all 62 tests passed. |
+| `pnpm build` | Passed; Vite transformed 310 modules. JavaScript chunks were **388.76 kB / 116.26 kB gzip**, **31.92 kB / 8.94 kB gzip**, and **19.74 kB / 4.89 kB gzip**; CSS was **61.59 kB / 13.16 kB gzip**. |
+| `git diff --check` | Passed; no whitespace errors. |
+
+This archive covers sessions started in this browser. The API contract still
+has no endpoint to list prior sessions started on another device.
