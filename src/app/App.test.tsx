@@ -46,6 +46,7 @@ vi.mock("@/shared/lib/geo", () => ({
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.stubEnv("VITE_USE_MOCKS", "true");
   clearMockSession();
   resetDemoData();
@@ -755,6 +756,22 @@ describe("Campus Attendance screens", () => {
         contentType = request.headers.get("Content-Type");
         return HttpResponse.json(response, { status: 201 });
       }),
+      http.get(`${apiBaseUrl}/me/offerings`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: offeringId,
+              course_code: "ENG 301",
+              course_title: "Engineering Mathematics III",
+              session_open: true,
+              next_timetable_slot: null,
+            },
+          ],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies OfferingsResponse),
+      ),
       http.get(`${apiBaseUrl}/sessions/:id/code`, ({ params }) => {
         codeSessionIds.push(String(params.id));
         const codeResponse: SessionCodeResponse = {
@@ -820,6 +837,21 @@ describe("Campus Attendance screens", () => {
       `?sessionId=${encodeURIComponent(sessionId)}`,
     );
     await waitFor(() => expect(codeSessionIds).toContain(sessionId));
+
+    await user.click(screen.getByRole("link", { name: "My teaching" }));
+    expect(
+      await screen.findByRole("heading", { name: "Welcome, Dr. Ngozi Eze" }),
+    ).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("link", {
+        name: "View live ENG 301 · Engineering Mathematics III session",
+      }),
+    );
+    expect(await screen.findByText("928 361")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/lecturer/live");
+    expect(
+      await screen.findByRole("button", { name: "End session" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "End session" }));
     await waitFor(() => expect(endedSessionIds).toContain(sessionId));

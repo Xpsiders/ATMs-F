@@ -751,7 +751,7 @@ export function App() {
                 path="/lecturer/start"
                 element={
                   <RoleGuard role={role} allowedRoles={["lecturer"]}>
-                    <LecturerStartSession />
+                    <LecturerStartSession user={currentUser} />
                   </RoleGuard>
                 }
               />
@@ -759,7 +759,7 @@ export function App() {
                 path="/lecturer/live"
                 element={
                   <RoleGuard role={role} allowedRoles={["lecturer"]}>
-                    <LecturerLiveSession />
+                    <LecturerLiveSession user={currentUser} />
                   </RoleGuard>
                 }
               />

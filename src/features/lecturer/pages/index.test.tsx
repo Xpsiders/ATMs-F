@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import type {
   LiveSessionResponse,
+  CurrentUser,
   OfferingsResponse,
   SessionCodeResponse,
   SessionReportResponse,
@@ -13,10 +14,26 @@ import type {
 import { server } from "@/test/setup";
 import { resetDemoData } from "@/mocks/store";
 import { LiveSession, Report } from "./index";
+import { rememberLiveSession } from "../liveSessionStorage";
 
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 const sessionId = "30000000-0000-4000-8000-000000000001";
+const lecturer = {
+  id: "20000000-0000-4000-8000-000000000001",
+  name: "Dr. Test Lecturer",
+  email: "lecturer@example.test",
+  status: "active",
+  must_change_password: false,
+  roles: [
+    {
+      role: "lecturer",
+      scope_type: "department",
+      scope_id: "10000000-0000-4000-8000-000000000001",
+      department_id: "10000000-0000-4000-8000-000000000001",
+    },
+  ],
+} satisfies CurrentUser;
 
 beforeEach(() => {
   vi.stubEnv("VITE_USE_MOCKS", "false");
@@ -108,10 +125,11 @@ describe("lecturer session data", () => {
       http.get(`${apiBaseUrl}/me/offerings`, () => HttpResponse.json(offerings)),
       http.get(`${apiBaseUrl}/venues`, () => HttpResponse.json(venues)),
     );
-    renderLecturerPage(
-      <LiveSession />,
-      `/lecturer/live?sessionId=${sessionId}`,
-    );
+    rememberLiveSession(lecturer.id, {
+      sessionId,
+      offeringId: offerings.items[0]!.id,
+    });
+    renderLecturerPage(<LiveSession user={lecturer} />, "/lecturer/live");
 
     expect(
       await screen.findByRole("heading", { name: "API 401 · Backend Data Systems" }),

@@ -34,6 +34,11 @@ import {
 } from "@/mocks/store";
 import { isMockMode } from "@/mocks/auth";
 import { useDemoState } from "@/mocks/useDemoState";
+import {
+  forgetLiveSession,
+  getRememberedLiveSession,
+  rememberLiveSession,
+} from "../liveSessionStorage";
 
 type ReportDisplayRow = {
   id: string;
@@ -244,9 +249,20 @@ export function Teaching({ user }: { user: CurrentUser }) {
                 )}
               </div>
               {offering.session_open ? (
-                <span className="text-button" aria-label="Session already live">
-                  Session already live
-                </span>
+                getRememberedLiveSession(user.id)?.offeringId ===
+                offering.id ? (
+                  <Link
+                    to="/lecturer/live"
+                    className="text-button"
+                    aria-label={`View live ${getOfferingLabel(offering)} session`}
+                  >
+                    View live session <Icon name="arrow" size={15} />
+                  </Link>
+                ) : (
+                  <span className="text-button" aria-label="Session already live">
+                    Session already live
+                  </span>
+                )
               ) : (
                 <Link
                   to={`/lecturer/start?offeringId=${encodeURIComponent(offering.id)}`}
@@ -268,7 +284,7 @@ export function Teaching({ user }: { user: CurrentUser }) {
   );
 }
 
-export function StartSession() {
+export function StartSession({ user }: { user: CurrentUser }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedOfferingId = searchParams.get("offeringId");
@@ -339,6 +355,10 @@ export function StartSession() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+      });
+      rememberLiveSession(user.id, {
+        sessionId: result.session.id,
+        offeringId: result.session.offering_id,
       });
       navigate(
         `/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`,
@@ -453,7 +473,7 @@ export function StartSession() {
   );
 }
 
-export function LiveSession() {
+export function LiveSession({ user }: { user: CurrentUser }) {
   const mock = isMockMode();
   const demoState = useDemoState(mock);
   const [searchParams] = useSearchParams();
@@ -464,12 +484,22 @@ export function LiveSession() {
   const [offerings, setOfferings] = useState<OfferingsResponse["items"]>([]);
   const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
   const requestedSessionId = searchParams.get("sessionId");
+  const rememberedSession = getRememberedLiveSession(user.id);
+  const rememberedDemoSession = mock
+    ? demoState.sessions.find(
+        (session) =>
+          session.id === rememberedSession?.sessionId &&
+          session.state === "live",
+      )
+    : undefined;
   const sessionId =
     requestedSessionId ??
     (mock
-      ? (demoState.sessions.find((session) => session.state === "live")?.id ??
+      ? (rememberedDemoSession?.id ??
+        rememberedSession?.sessionId ??
+        demoState.sessions.find((session) => session.state === "live")?.id ??
         "")
-      : "");
+      : (rememberedSession?.sessionId ?? ""));
   const demoSession = demoState.sessions.find(
     (session) => session.id === sessionId,
   );
@@ -681,6 +711,7 @@ export function LiveSession() {
           method: "POST",
         },
       );
+      forgetLiveSession(user.id, sessionId);
       setLocalEnded(true);
     } catch (caught) {
       setNotice(formatApiError(caught));

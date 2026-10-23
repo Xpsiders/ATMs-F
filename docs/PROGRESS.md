@@ -32,7 +32,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
 | Lecturer | Offerings / teaching list | Done | Displays the signed-in lecturer's name and offerings returned by authenticated `/me/offerings`, including `session_open` and nullable `next_timetable_slot`; loading, error/retry, empty states, and per-offering start links that select the matching offering are implemented. Real-backend assignment scoping remains unverified. |
 | Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
-| Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for code polling, ending, and live attendance. Counts and roster are polled from `/sessions/{id}/live`; offering and venue labels come from `/me/offerings`, `/venues`, and the returned session. API scanner coverage is not included in the live endpoint. |
+| Lecturer | Live session screen / rotating code | Partial | Started-session and return-to-live navigation retain the selected session ID for the signed-in lecturer in tab-scoped session storage (ID only; never the attendance code). Counts and roster are polled from `/sessions/{id}/live`; offering and venue labels come from `/me/offerings`, `/venues`, and the returned session. API scanner coverage is not included in the live endpoint. |
 | Lecturer | Projector mode | Done | Fullscreen request, scalable code and theme toggle are available; real projector behavior is unverified. |
 | Lecturer | Board mode / power-cut fallback | Done | Portrait-friendly code/count display, fullscreen/Escape handling and feature-detected Wake Lock are implemented. |
 | Lecturer | Fixed-code confirmation and scanner coverage | Done | Confirmed fixed-code action updates shared session state; scanner scenario updates shared scanner state and warnings appear. |
@@ -261,3 +261,28 @@ department-name values, so the UI does not fabricate those fields.
 
 No servers were started; live-backend responses and generated PDF appearance
 were not browser-verified.
+
+## Lecturer live-session navigation
+
+Starting a session already routed directly to its returned ID, but the sidebar's
+Live session link dropped that query parameter. The API's `/me/offerings`
+response exposes only `session_open`, not an open session ID, so the teaching
+list could not reopen a session started in the current tab. The app now retains
+the returned session and offering IDs in `sessionStorage` scoped by lecturer
+user ID, resumes that session from the Live session nav link, and offers a
+per-offering “View live session” action when the active session is known. Ending
+the session clears the remembered ID. The attendance code is never stored.
+Mock mode continues to prefer its live demo-store session.
+
+| Command | Result |
+|---|---|
+| `pnpm test --maxWorkers=1 src/app/App.test.tsx -t "starts a session, polls its returned code, and ends that session"` | Passed; verifies a started session can be revisited from My teaching and ended. |
+| `pnpm test --maxWorkers=1 src/features/lecturer/pages/index.test.tsx` | Passed; 3 tests, including real-mode resume without a URL session ID. |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and all 61 tests passed. |
+| `pnpm build` | Passed; Vite transformed 310 modules. JavaScript chunks were **387.38 kB / 115.87 kB gzip**, **30.88 kB / 8.77 kB gzip**, and **19.74 kB / 4.89 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+| `git diff --check` | Passed; no whitespace errors. |
+
+No server was started; the backend contract does not currently expose a way to
+discover open session IDs created on another device or browser tab.
