@@ -598,6 +598,26 @@ describe("Campus Attendance screens", () => {
     );
   });
 
+  it("shows scoped courses and assigned lecturers to a department admin", async () => {
+    renderApp("/courses", true, "department-admin");
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Courses & offerings" },
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Engineering Mathematics III/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
+    expect(screen.getByText("Mr. Chidi Obi")).toBeInTheDocument();
+    expect(
+      screen.getByText(/not a directory of staff who have no course assignments/i),
+    ).toBeInTheDocument();
+  });
+
   it("shows scanner coverage loss and the fixed-code banner", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

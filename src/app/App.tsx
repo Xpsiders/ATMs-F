@@ -99,6 +99,11 @@ const AdminRoleAssignment = lazy(() =>
     default: module.RoleAssignment,
   })),
 );
+const AdminCoursesAndOfferings = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.CoursesAndOfferings,
+  })),
+);
 
 function RoleGuard({
   role,
@@ -717,7 +722,11 @@ export function App() {
                       "institution-admin",
                     ]}
                   >
-                    <Courses />
+                    {role === "student" ? (
+                      <Courses />
+                    ) : (
+                      <AdminCoursesAndOfferings user={currentUser} />
+                    )}
                   </RoleGuard>
                 }
               />

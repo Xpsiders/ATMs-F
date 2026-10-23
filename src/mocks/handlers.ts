@@ -257,9 +257,12 @@ export const handlers = [
         ? { offset: Number(url.searchParams.get("offset")) }
         : {}),
     };
-    return getMockSession()?.role === "student"
+    const role = getMockSession()?.role;
+    return role === "student" ||
+      role === "department-admin" ||
+      role === "institution-admin"
       ? HttpResponse.json(searchDemoOfferings(query))
-      : apiError(403, "not_a_student", "This endpoint is for students.");
+      : apiError(403, "forbidden", "This endpoint is not available to this account.");
   }),
   http.post(`${apiBaseUrl}/offerings/:id/registrations`, ({ params }) => {
     if (getMockSession()?.role !== "student")

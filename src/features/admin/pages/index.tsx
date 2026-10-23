@@ -13,6 +13,8 @@ import type {
   DeleteAcademicSessionResponse,
   DeleteSemesterResponse,
   ReviewSignupRequest,
+  SearchOfferingsResponse,
+  CurrentUser,
   SemestersResponse,
   SignupRequestsResponse,
   StaffImportCommitResponse,
@@ -884,6 +886,127 @@ export function RoleAssignment() {
         <p>The backend validates that the requested role and scope are within the signed-in administrator's authority.</p>
         <button className="button primary-button" disabled={pending}>{pending ? "Assigning…" : "Assign role"}</button>
       </form>
+    </div>
+  );
+}
+
+export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [offerings, setOfferings] = useState<
+    SearchOfferingsResponse["items"]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void (async () => {
+      try {
+        const items: SearchOfferingsResponse["items"] = [];
+        let offset = 0;
+        while (true) {
+          const params = new URLSearchParams({
+            q: debouncedQuery,
+            limit: "200",
+            offset: String(offset),
+          });
+          const page = await apiRequest<SearchOfferingsResponse>(
+            `/offerings/search?${params}`,
+          );
+          items.push(...page.items);
+          if (!page.has_more || page.items.length === 0) break;
+          offset += page.items.length;
+        }
+        if (active) setOfferings(items);
+      } catch (caught) {
+        if (active) setError(formatApiError(caught));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [debouncedQuery, reloadKey]);
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="SCOPED ADMINISTRATION"
+        title="Courses & offerings"
+        subtitle={`Courses and offerings visible to ${user.name}'s administrator scope, with their assigned lecturers.`}
+      />
+      <section className="panel">
+        <label className="search-field admin-offering-search">
+          <Icon name="search" />
+          <input
+            aria-label="Search courses and lecturers"
+            placeholder="Search by course, department, or lecturer…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <p className="admin-offering-note">
+          Lecturer names are shown for each offering. This is not a directory
+          of staff who have no course assignments.
+        </p>
+        {loading ? (
+          <p role="status">Loading scoped courses and offerings…</p>
+        ) : error ? (
+          <div className="api-state-error" role="alert">
+            <p>{error}</p>
+            <button
+              className="text-button"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Retry
+            </button>
+          </div>
+        ) : offerings.length ? (
+          <div className="admin-offering-list">
+            {offerings.map((offering) => (
+              <article
+                className="admin-offering-row"
+                key={offering.offering_id}
+              >
+                <div>
+                  <h2>
+                    {offering.course_code} · {offering.course_title}
+                  </h2>
+                  <p>
+                    {offering.department_name} · Level {offering.level} ·{" "}
+                    {offering.kind === "general" ? "General" : "Departmental"}
+                    {offering.semester ? ` · ${offering.semester}` : ""}
+                  </p>
+                </div>
+                <div className="admin-offering-lecturers">
+                  <b>Lecturers</b>
+                  <span>
+                    {offering.lecturers.length
+                      ? offering.lecturers.join(", ")
+                      : "No lecturers assigned"}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-state">
+            {debouncedQuery
+              ? "No courses or offerings match your search in this administrator scope."
+              : "No courses or offerings were found in this administrator scope."}
+          </p>
+        )}
+      </section>
     </div>
   );
 }
