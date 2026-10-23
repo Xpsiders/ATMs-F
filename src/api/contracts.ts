@@ -13,19 +13,27 @@ export type StudentTimetableResponse =
 export type TimetableEntry = StudentTimetableResponse["items"][number];
 export type StudentAttendanceResponse =
   operations["getMyAttendance"]["responses"][200]["content"]["application/json"];
-export type StudentAttendanceEntry =
-  StudentAttendanceResponse["items"][number];
+export type StudentAttendanceEntry = StudentAttendanceResponse["items"][number];
 export type PendingRegistrationsResponse =
   operations["getMyPendingRegistrations"]["responses"][200]["content"]["application/json"];
-export type PendingRegistration =
-  PendingRegistrationsResponse["items"][number];
+export type PendingRegistration = PendingRegistrationsResponse["items"][number];
 export type SearchOfferingsResponse =
   operations["searchOfferings"]["responses"][200]["content"]["application/json"];
 export type SearchOffering = SearchOfferingsResponse["items"][number];
 export type SearchOfferingsQuery =
   operations["searchOfferings"]["parameters"]["query"];
+export type OfferingLecturersResponse =
+  operations["listOfferingLecturers"]["responses"][200]["content"]["application/json"];
+export type SetOfferingLecturersRequest =
+  operations["setOfferingLecturers"]["requestBody"]["content"]["application/json"];
+export type SetOfferingLecturersResponse =
+  operations["setOfferingLecturers"]["responses"][200]["content"]["application/json"];
 export type DepartmentCatalogueResponse =
   operations["listDepartments"]["responses"][200]["content"]["application/json"];
+export type CreateCourseRequest =
+  operations["createCourse"]["requestBody"]["content"]["application/json"];
+export type CreateCourseResponse =
+  operations["createCourse"]["responses"][201]["content"]["application/json"];
 export type RegistrationResponse =
   operations["registerForOffering"]["responses"][201]["content"]["application/json"];
 export type VenueListResponse =
@@ -81,7 +89,8 @@ export type CreateSemesterResponse =
   operations["createSemester"]["responses"][201]["content"]["application/json"];
 export type UpdateSemesterResponse =
   operations["updateSemester"]["responses"][200]["content"]["application/json"];
-export type DeleteSemesterResponse = operations["deleteSemester"]["responses"][204];
+export type DeleteSemesterResponse =
+  operations["deleteSemester"]["responses"][204];
 export type StartSessionRequest =
   operations["startSession"]["requestBody"]["content"]["application/json"];
 export type StartSessionResponse =
@@ -92,8 +101,7 @@ export type LiveSessionResponse =
   operations["getLiveSessionRoster"]["responses"][200]["content"]["application/json"];
 export type SessionReportResponse =
   operations["getSessionReport"]["responses"][200]["content"]["application/json"];
-export type SessionReportItem =
-  SessionReportResponse["items"][number];
+export type SessionReportItem = SessionReportResponse["items"][number];
 export type LoginResponse =
   operations["login"]["responses"][200]["content"]["application/json"];
 export type CurrentUser =
@@ -104,7 +112,8 @@ export type CheckInResponse =
   operations["createWebCheckin"]["responses"][201]["content"]["application/json"];
 export type RosterPage =
   operations["getSessionRosterSheet"]["responses"][200]["content"]["application/json"];
-export type RosterSheetRow = components["schemas"]["RosterPage"]["items"][number];
+export type RosterSheetRow =
+  components["schemas"]["RosterPage"]["items"][number];
 export type SessionPatchResponse =
   operations["convertSessionToFixedCode"]["responses"][200]["content"]["application/json"];
 export type AttendanceOverrideRequest =

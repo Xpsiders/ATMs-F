@@ -2,6 +2,7 @@ export type DemoRole =
   | "student"
   | "lecturer"
   | "department-admin"
+  | "faculty-admin"
   | "institution-admin";
 
 export type DemoAccount = {
@@ -15,6 +16,7 @@ export const DEMO_ROLE_LABELS: Record<DemoRole, string> = {
   student: "Student",
   lecturer: "Lecturer",
   "department-admin": "Department admin",
+  "faculty-admin": "Faculty admin",
   "institution-admin": "Institution admin",
 };
 
@@ -22,6 +24,7 @@ export const DEMO_ROLE_ROUTES: Record<DemoRole, string> = {
   student: "/",
   lecturer: "/lecturer",
   "department-admin": "/admin",
+  "faculty-admin": "/admin",
   "institution-admin": "/admin/institution",
 };
 
@@ -45,6 +48,12 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     name: "Department Administrator",
   },
   {
+    email: "admin.faculty@campus.example",
+    password: "FacultyDemo!2026",
+    role: "faculty-admin",
+    name: "Faculty Administrator",
+  },
+  {
     email: "admin.institution@campus.example",
     password: "InstitutionDemo!2026",
     role: "institution-admin",
@@ -52,8 +61,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
   },
 ];
 
-export const DEMO_INSTITUTION_ID =
-  "10000000-0000-4000-8000-000000000001";
+export const DEMO_INSTITUTION_ID = "10000000-0000-4000-8000-000000000001";
 
 const SESSION_KEY = "campuscheck-mock-role";
 let activeAccount: DemoAccount | null = null;
@@ -73,7 +81,8 @@ export function getMockSession(): DemoAccount | null {
   if (activeAccount) return activeAccount;
   try {
     const role = sessionStorage.getItem(SESSION_KEY);
-    activeAccount = DEMO_ACCOUNTS.find((account) => account.role === role) ?? null;
+    activeAccount =
+      DEMO_ACCOUNTS.find((account) => account.role === role) ?? null;
   } catch {
     activeAccount = null;
   }

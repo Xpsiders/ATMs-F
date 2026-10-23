@@ -4,13 +4,17 @@ import type {
   CreateAcademicSessionResponse,
   VenueListResponse,
 } from "@/api/contracts";
-import { resetDemoPasswordState } from "@/mocks/auth";
+import {
+  clearMockSession,
+  resetDemoPasswordState,
+  startMockSession,
+} from "@/mocks/auth";
 import { resetDemoData } from "@/mocks/store";
 
-const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
 afterEach(() => {
+  clearMockSession();
   resetDemoData();
   resetDemoPasswordState();
   vi.unstubAllEnvs();
@@ -127,9 +131,93 @@ describe("new API mock handlers", () => {
     expect(
       sessions.items.some(
         (session) =>
-          session.id === createdSession.id &&
-          session.name === "2026/2027",
+          session.id === createdSession.id && session.name === "2026/2027",
       ),
     ).toBe(true);
+  });
+
+  it("creates courses through the scoped admin mock endpoint", async () => {
+    vi.stubEnv("VITE_USE_MOCKS", "true");
+    startMockSession("department-admin");
+    const outsideScope = await fetch(`${apiBaseUrl}/courses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        department_id: "10000000-0000-4000-8000-000000000005",
+        code: "EE 401",
+        title: "Power Systems",
+      }),
+    });
+    expect(outsideScope.status).toBe(403);
+
+    const create = await fetch(`${apiBaseUrl}/courses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        department_id: "10000000-0000-4000-8000-000000000004",
+        code: "CPE 401",
+        title: "Advanced Design",
+        kind: "departmental",
+      }),
+    });
+    expect(create.status).toBe(201);
+    const created: { id: string } = await create.json();
+
+    const list = await fetch(`${apiBaseUrl}/courses`);
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      items: [
+        {
+          id: created.id,
+          department_id: "10000000-0000-4000-8000-000000000004",
+          code: "CPE 401",
+          title: "Advanced Design",
+        },
+      ],
+    });
+  });
+
+  it("adds a mock lecturer while retaining the existing offering assignments", async () => {
+    vi.stubEnv("VITE_USE_MOCKS", "true");
+    startMockSession("department-admin");
+    const offeringId = "4c39d74e-7b7c-4cb0-8bd5-c8274905e3ce";
+    const response = await fetch(
+      `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject([
+      {
+        id: "20000000-0000-4000-8000-000000000002",
+        display_name: "Dr. Ngozi Eze",
+      },
+    ]);
+
+    const update = await fetch(
+      `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lecturer_ids: [
+            "20000000-0000-4000-8000-000000000002",
+            "20000000-0000-4000-8000-000000000010",
+          ],
+        }),
+      },
+    );
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toEqual({
+      lecturer_ids: [
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000010",
+      ],
+    });
+    const refreshed = await fetch(
+      `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
+    );
+    await expect(refreshed.json()).resolves.toMatchObject([
+      { id: "20000000-0000-4000-8000-000000000002" },
+      { id: "20000000-0000-4000-8000-000000000010" },
+    ]);
   });
 });

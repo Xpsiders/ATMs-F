@@ -3,13 +3,16 @@ import type {
   LiveClassesResponse,
   AcademicSessionsResponse,
   CreateAcademicSessionRequest,
+  CreateCourseRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
+  OfferingLecturersResponse,
   OfferingsResponse,
   PendingRegistrationsResponse,
   RegistrationResponse,
   SearchOfferingsQuery,
   SearchOfferingsResponse,
+  SetOfferingLecturersResponse,
   StudentAttendanceResponse,
   StudentCoursesResponse,
   StudentTimetableResponse,
@@ -119,6 +122,30 @@ const INITIAL_DEMO_VENUES = structuredClone(DEMO_VENUES);
 let demoVenues = structuredClone(INITIAL_DEMO_VENUES);
 let demoAcademicSessions: components["schemas"]["CatalogueItem"][] = [];
 let demoSemesters: components["schemas"]["CatalogueItem"][] = [];
+let demoCourses: components["schemas"]["CatalogueItem"][] = [];
+const demoOfferingLecturers = new Map<string, OfferingLecturersResponse>();
+const DEMO_LECTURERS: OfferingLecturersResponse = [
+  {
+    id: "20000000-0000-4000-8000-000000000002",
+    display_name: "Dr. Ngozi Eze",
+    email: "ngozi.lecturer@campus.example",
+  },
+  {
+    id: "20000000-0000-4000-8000-000000000007",
+    display_name: "Mr. Chidi Obi",
+    email: "chidi.lecturer@campus.example",
+  },
+  {
+    id: "20000000-0000-4000-8000-000000000008",
+    display_name: "Dr. Tunde Bello",
+    email: "tunde.lecturer@campus.example",
+  },
+  {
+    id: "20000000-0000-4000-8000-000000000009",
+    display_name: "Prof. Ada Nwosu",
+    email: "ada.lecturer@campus.example",
+  },
+];
 
 const SEEDED_SESSION_ID = globalThis.crypto.randomUUID();
 
@@ -334,14 +361,16 @@ export function resetDemoData(): void {
   demoVenues = structuredClone(INITIAL_DEMO_VENUES);
   demoAcademicSessions = [];
   demoSemesters = [];
+  demoCourses = [];
+  demoOfferingLecturers.clear();
   listeners.forEach((listener) => listener());
 }
 
-export function listDemoOfferings(
-  lecturerName?: string,
-): OfferingsResponse {
+export function listDemoOfferings(lecturerName?: string): OfferingsResponse {
   const offerings = lecturerName
-    ? demoState.offerings.filter((offering) => offering.lecturer === lecturerName)
+    ? demoState.offerings.filter(
+        (offering) => offering.lecturer === lecturerName,
+      )
     : demoState.offerings;
   return {
     items: offerings.map(({ id, code, title }) => ({
@@ -372,6 +401,59 @@ export function listDemoDepartments(): components["schemas"]["PagedCatalogueItem
     offset: 0,
     has_more: false,
   };
+}
+
+export function createDemoCourse(
+  request: CreateCourseRequest,
+): components["schemas"]["CatalogueItem"] {
+  const course: components["schemas"]["CatalogueItem"] = {
+    id: globalThis.crypto.randomUUID(),
+    ...request,
+  };
+  demoCourses = [...demoCourses, course];
+  return course;
+}
+
+export function listDemoCourses(): components["schemas"]["PagedCatalogueItems"] {
+  return {
+    items: structuredClone(demoCourses),
+    limit: demoCourses.length,
+    offset: 0,
+    has_more: false,
+  };
+}
+
+export function listDemoOfferingLecturers(
+  offeringId: string,
+): OfferingLecturersResponse {
+  const assigned = demoOfferingLecturers.get(offeringId);
+  if (assigned) return structuredClone(assigned);
+  const offering = demoState.offerings.find(({ id }) => id === offeringId);
+  const lecturer = DEMO_LECTURERS.find(
+    ({ display_name }) => display_name === offering?.lecturer,
+  );
+  const initialAssignments = lecturer ? [lecturer] : [];
+  demoOfferingLecturers.set(offeringId, initialAssignments);
+  return structuredClone(initialAssignments);
+}
+
+export function setDemoOfferingLecturers(
+  offeringId: string,
+  lecturerIds: string[],
+): SetOfferingLecturersResponse | null {
+  if (!demoState.offerings.some(({ id }) => id === offeringId)) return null;
+  const current = listDemoOfferingLecturers(offeringId);
+  const assignments = lecturerIds.map(
+    (id) =>
+      current.find((lecturer) => lecturer.id === id) ??
+      DEMO_LECTURERS.find((lecturer) => lecturer.id === id) ?? {
+        id,
+        display_name: id,
+        email: "",
+      },
+  );
+  demoOfferingLecturers.set(offeringId, assignments);
+  return { lecturer_ids: lecturerIds };
 }
 
 export function listDemoVenues(): VenueListResponse {
@@ -490,7 +572,9 @@ export function updateDemoSemester(
   const current = demoSemesters.find((item) => item.id === id);
   if (!current) return null;
   const updated = { ...current, ...request };
-  demoSemesters = demoSemesters.map((item) => (item.id === id ? updated : item));
+  demoSemesters = demoSemesters.map((item) =>
+    item.id === id ? updated : item,
+  );
   return updated;
 }
 
@@ -500,9 +584,7 @@ export function deleteDemoSemester(id: string): boolean {
   return true;
 }
 
-export function listDemoLiveClasses(
-  studentId?: string,
-): LiveClassesResponse {
+export function listDemoLiveClasses(studentId?: string): LiveClassesResponse {
   return {
     items: demoState.sessions
       .filter((session) => session.state === "live")
@@ -582,11 +664,10 @@ export function listDemoStudentTimetable(): StudentTimetableResponse {
       venue_name: demoVenues[index % demoVenues.length]!.name,
       starts_at: index === 0 ? "09:00:00" : "11:00:00",
       ends_at: index === 0 ? "10:30:00" : "12:30:00",
-      live_now:
-        demoState.sessions.some(
-          (session) =>
-            session.state === "live" && session.offeringId === offering.id,
-        ),
+      live_now: demoState.sessions.some(
+        (session) =>
+          session.state === "live" && session.offeringId === offering.id,
+      ),
     }));
   return { date: currentDemoDate(), items };
 }
@@ -602,8 +683,7 @@ export function listDemoStudentAttendance(
   const items = demoState.attendance
     .filter(
       (record) =>
-        record.studentId === studentId &&
-        record.offeringCode === offering.code,
+        record.studentId === studentId && record.offeringCode === offering.code,
     )
     .map((record) => {
       const session = demoState.sessions.find(
@@ -632,7 +712,8 @@ export function listDemoStudentAttendance(
         date: session?.date ?? currentDemoDate(),
         status,
         classification,
-        override_reason: record.status === "excused" ? "Approved excusal" : null,
+        override_reason:
+          record.status === "excused" ? "Approved excusal" : null,
       };
     });
   return { items };
@@ -658,11 +739,15 @@ export function searchDemoOfferings(
   query: SearchOfferingsQuery,
 ): SearchOfferingsResponse {
   const matching = demoState.offerings.filter((offering) => {
-    const searchText = `${offering.code} ${offering.title} ${offering.lecturer}`;
+    const lecturers = listDemoOfferingLecturers(offering.id);
+    const searchText = `${offering.code} ${offering.title} ${lecturers
+      .map(({ display_name }) => display_name)
+      .join(" ")}`;
     const departmentMatches =
       !query.department_id ||
       query.department_id === demoDepartmentId(offering.department);
-    const levelMatches = !query.level || query.level === Number.parseInt(offering.level, 10);
+    const levelMatches =
+      !query.level || query.level === Number.parseInt(offering.level, 10);
     const kindMatches =
       !query.kind ||
       query.kind === (offering.kind === "General" ? "general" : "departmental");
@@ -698,7 +783,9 @@ export function searchDemoOfferings(
             : offering.registration === "Approval"
               ? "approval"
               : "closed",
-        lecturers: [offering.lecturer],
+        lecturers: listDemoOfferingLecturers(offering.id).map(
+          ({ display_name }) => display_name,
+        ),
         registration_status: pending
           ? "pending"
           : registered
@@ -719,7 +806,9 @@ export function searchDemoOfferings(
   };
 }
 
-export function registerDemoOffering(offeringId: string): RegistrationResponse | null {
+export function registerDemoOffering(
+  offeringId: string,
+): RegistrationResponse | null {
   const offering = demoState.offerings.find(
     (candidate) => candidate.id === offeringId,
   );
@@ -818,9 +907,7 @@ export function createDemoSession(
   };
 }
 
-export function getDemoSession(
-  sessionId: string,
-): DemoSession | undefined {
+export function getDemoSession(sessionId: string): DemoSession | undefined {
   return demoState.sessions.find((session) => session.id === sessionId);
 }
 

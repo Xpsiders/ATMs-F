@@ -5,6 +5,8 @@ import type {
   AcademicSessionsResponse,
   CreateAcademicSessionRequest,
   CreateAcademicSessionResponse,
+  CreateCourseRequest,
+  CreateCourseResponse,
   CreateRoleAssignmentRequest,
   CreateSemesterRequest,
   CreateSemesterResponse,
@@ -12,7 +14,9 @@ import type {
   CreateVenueResponse,
   DeleteAcademicSessionResponse,
   DeleteSemesterResponse,
+  OfferingLecturersResponse,
   ReviewSignupRequest,
+  DepartmentCatalogueResponse,
   SearchOfferingsResponse,
   CurrentUser,
   SemestersResponse,
@@ -20,6 +24,8 @@ import type {
   StaffImportCommitResponse,
   StaffImportPreview,
   StaffImportRequest,
+  SetOfferingLecturersRequest,
+  SetOfferingLecturersResponse,
   UpdateAcademicSessionRequest,
   UpdateAcademicSessionResponse,
   UpdateSemesterRequest,
@@ -243,7 +249,9 @@ export function SignupRequestReview() {
     let active = true;
     setLoading(true);
     setError("");
-    void apiRequest<SignupRequestsResponse>("/signup-requests?limit=200&offset=0")
+    void apiRequest<SignupRequestsResponse>(
+      "/signup-requests?limit=200&offset=0",
+    )
       .then((response) => {
         if (active) setRequests(response.items ?? []);
       })
@@ -271,7 +279,9 @@ export function SignupRequestReview() {
         !Number.isInteger(level) ||
         level < 1)
     ) {
-      setError("Provide the student's name, department, programme and level to approve.");
+      setError(
+        "Provide the student's name, department, programme and level to approve.",
+      );
       return;
     }
     const body: ReviewSignupRequest =
@@ -364,7 +374,9 @@ export function SignupRequestReview() {
                     <b>{label}</b>
                     {email && <span>{email}</span>}
                   </span>
-                  {!id && <small>Request ID unavailable in API response.</small>}
+                  {!id && (
+                    <small>Request ID unavailable in API response.</small>
+                  )}
                 </label>
               );
             })}
@@ -423,7 +435,9 @@ export function SignupRequestReview() {
             </div>
           </>
         ) : (
-          <p className="empty-state">There are no pending signup requests in your scope.</p>
+          <p className="empty-state">
+            There are no pending signup requests in your scope.
+          </p>
         )}
       </section>
     </div>
@@ -538,8 +552,16 @@ export function VenueAdministration() {
         title="Venues"
         subtitle="Create and maintain venues within your administrator scope."
       />
-      {error && <div className="form-error" role="alert">{error}</div>}
-      {message && <div className="form-info" role="status">{message}</div>}
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="form-info" role="status">
+          {message}
+        </div>
+      )}
       <section className="panel">
         <div className="panel-heading">
           <div>
@@ -579,7 +601,10 @@ export function VenueAdministration() {
           <p className="empty-state">No venues are available in your scope.</p>
         )}
       </section>
-      <form className="panel page-stack" onSubmit={(event) => void saveVenue(event)}>
+      <form
+        className="panel page-stack"
+        onSubmit={(event) => void saveVenue(event)}
+      >
         <h2>{selectedId ? "Update venue" : "Create venue"}</h2>
         <label className="field-label">
           Venue name
@@ -594,27 +619,68 @@ export function VenueAdministration() {
         <div className="form-grid">
           <label className="field-label">
             Latitude
-            <input className="field-control" type="number" step="any" min={-90} max={90} value={latitude} onChange={(event) => setLatitude(event.target.value)} required />
+            <input
+              className="field-control"
+              type="number"
+              step="any"
+              min={-90}
+              max={90}
+              value={latitude}
+              onChange={(event) => setLatitude(event.target.value)}
+              required
+            />
           </label>
           <label className="field-label">
             Longitude
-            <input className="field-control" type="number" step="any" min={-180} max={180} value={longitude} onChange={(event) => setLongitude(event.target.value)} required />
+            <input
+              className="field-control"
+              type="number"
+              step="any"
+              min={-180}
+              max={180}
+              value={longitude}
+              onChange={(event) => setLongitude(event.target.value)}
+              required
+            />
           </label>
           <label className="field-label">
             Radius (meters)
-            <input className="field-control" type="number" min={1} step={1} value={radius} onChange={(event) => setRadius(Number(event.target.value))} required />
+            <input
+              className="field-control"
+              type="number"
+              min={1}
+              step={1}
+              value={radius}
+              onChange={(event) => setRadius(Number(event.target.value))}
+              required
+            />
           </label>
           <label className="field-label">
             Department ID (optional)
-            <input className="field-control" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} />
+            <input
+              className="field-control"
+              value={departmentId}
+              onChange={(event) => setDepartmentId(event.target.value)}
+            />
           </label>
         </div>
         <div className="button-row">
-          <button className="button primary-button" type="submit" disabled={pending}>
+          <button
+            className="button primary-button"
+            type="submit"
+            disabled={pending}
+          >
             {pending ? "Saving…" : selectedId ? "Save venue" : "Create venue"}
           </button>
           {selectedId && (
-            <button className="button secondary-button" type="button" onClick={() => { setSelectedId(""); setName(""); }}>
+            <button
+              className="button secondary-button"
+              type="button"
+              onClick={() => {
+                setSelectedId("");
+                setName("");
+              }}
+            >
               Cancel edit
             </button>
           )}
@@ -625,7 +691,9 @@ export function VenueAdministration() {
 }
 
 export function AcademicCalendar() {
-  const [sessions, setSessions] = useState<AcademicSessionsResponse["items"]>([]);
+  const [sessions, setSessions] = useState<AcademicSessionsResponse["items"]>(
+    [],
+  );
   const [semesters, setSemesters] = useState<SemestersResponse["items"]>([]);
   const [name, setName] = useState("");
   const [startsOn, setStartsOn] = useState("");
@@ -647,7 +715,9 @@ export function AcademicCalendar() {
     setLoading(true);
     setError("");
     void Promise.all([
-      apiRequest<AcademicSessionsResponse>("/academic-sessions?limit=200&offset=0"),
+      apiRequest<AcademicSessionsResponse>(
+        "/academic-sessions?limit=200&offset=0",
+      ),
       apiRequest<SemestersResponse>("/semesters?limit=200&offset=0"),
     ])
       .then(([sessionResponse, semesterResponse]) => {
@@ -674,7 +744,12 @@ export function AcademicCalendar() {
       ends_on: endsOn,
       current,
     };
-    await mutate("/academic-sessions", "POST", payload, "Academic session created.");
+    await mutate(
+      "/academic-sessions",
+      "POST",
+      payload,
+      "Academic session created.",
+    );
     setName("");
     setStartsOn("");
     setEndsOn("");
@@ -727,7 +802,11 @@ export function AcademicCalendar() {
   async function mutate(
     path: string,
     method: "POST" | "PATCH" | "DELETE",
-    payload: CreateAcademicSessionRequest | UpdateAcademicSessionRequest | CreateSemesterRequest | UpdateSemesterRequest,
+    payload:
+      | CreateAcademicSessionRequest
+      | UpdateAcademicSessionRequest
+      | CreateSemesterRequest
+      | UpdateSemesterRequest,
     successMessage: string,
   ) {
     setPending(true);
@@ -735,17 +814,28 @@ export function AcademicCalendar() {
     setMessage("");
     try {
       if (method === "POST" && path === "/academic-sessions")
-        await apiRequest<CreateAcademicSessionResponse>(path, { method, body: JSON.stringify(payload) });
+        await apiRequest<CreateAcademicSessionResponse>(path, {
+          method,
+          body: JSON.stringify(payload),
+        });
       else if (method === "POST")
-        await apiRequest<CreateSemesterResponse>(path, { method, body: JSON.stringify(payload) });
+        await apiRequest<CreateSemesterResponse>(path, {
+          method,
+          body: JSON.stringify(payload),
+        });
       else if (method === "PATCH" && path.startsWith("/academic-sessions/"))
-        await apiRequest<UpdateAcademicSessionResponse>(path, { method, body: JSON.stringify(payload) });
+        await apiRequest<UpdateAcademicSessionResponse>(path, {
+          method,
+          body: JSON.stringify(payload),
+        });
       else if (method === "PATCH")
-        await apiRequest<UpdateSemesterResponse>(path, { method, body: JSON.stringify(payload) });
+        await apiRequest<UpdateSemesterResponse>(path, {
+          method,
+          body: JSON.stringify(payload),
+        });
       else if (path.startsWith("/academic-sessions/"))
         await apiRequest<DeleteAcademicSessionResponse>(path, { method });
-      else
-        await apiRequest<DeleteSemesterResponse>(path, { method });
+      else await apiRequest<DeleteSemesterResponse>(path, { method });
       setMessage(successMessage);
       setReloadKey((key) => key + 1);
     } catch (caught) {
@@ -757,7 +847,12 @@ export function AcademicCalendar() {
 
   async function updateSession(id: string) {
     const payload: UpdateAcademicSessionRequest = { current: true };
-    await mutate(`/academic-sessions/${encodeURIComponent(id)}`, "PATCH", payload, "Current academic session updated.");
+    await mutate(
+      `/academic-sessions/${encodeURIComponent(id)}`,
+      "PATCH",
+      payload,
+      "Current academic session updated.",
+    );
   }
 
   async function deleteItem(path: string, label: string) {
@@ -771,56 +866,238 @@ export function AcademicCalendar() {
         title="Academic calendar"
         subtitle="Maintain academic sessions and their semesters."
       />
-      {error && <div className="form-error" role="alert">{error}</div>}
-      {message && <div className="form-info" role="status">{message}</div>}
-      {loading ? <p role="status">Loading academic calendar…</p> : (
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="form-info" role="status">
+          {message}
+        </div>
+      )}
+      {loading ? (
+        <p role="status">Loading academic calendar…</p>
+      ) : (
         <>
           <section className="panel">
-            <div className="panel-heading"><div><h2>Academic sessions</h2><p>Dates and current-session state are returned by the API.</p></div></div>
-            {sessions.length ? sessions.map((item) => (
-              <div className="teaching-row" key={item.id}>
-                <div><b>{displayValue(item, ["name", "title", "code"]) ?? `Session ${item.id}`}</b><span>{displayValue(item, ["starts_on"]) ?? "Start date unavailable"} – {displayValue(item, ["ends_on"]) ?? "End date unavailable"}</span></div>
-                <div className="button-row">
-                  <button className="text-button" disabled={pending} onClick={() => void updateSession(item.id)}>Set current</button>
-                  <button className="text-button" disabled={pending} onClick={() => void deleteItem(`/academic-sessions/${encodeURIComponent(item.id)}`, "Academic session")}>Delete</button>
-                </div>
+            <div className="panel-heading">
+              <div>
+                <h2>Academic sessions</h2>
+                <p>Dates and current-session state are returned by the API.</p>
               </div>
-            )) : <p className="empty-state">No academic sessions have been created.</p>}
-          </section>
-          <form className="panel page-stack" onSubmit={(event) => void createSession(event)}>
-            <h2>Create academic session</h2>
-            <label className="field-label">Name<input className="field-control" value={name} onChange={(event) => setName(event.target.value)} required /></label>
-            <div className="form-grid">
-              <label className="field-label">Starts on<input className="field-control" type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} required /></label>
-              <label className="field-label">Ends on<input className="field-control" type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} required /></label>
             </div>
-            <label className="session-option"><input type="checkbox" checked={current} onChange={(event) => setCurrent(event.target.checked)} />Set as current session</label>
-            <button className="button primary-button" disabled={pending}>{pending ? "Saving…" : "Create session"}</button>
+            {sessions.length ? (
+              sessions.map((item) => (
+                <div className="teaching-row" key={item.id}>
+                  <div>
+                    <b>
+                      {displayValue(item, ["name", "title", "code"]) ??
+                        `Session ${item.id}`}
+                    </b>
+                    <span>
+                      {displayValue(item, ["starts_on"]) ??
+                        "Start date unavailable"}{" "}
+                      –{" "}
+                      {displayValue(item, ["ends_on"]) ??
+                        "End date unavailable"}
+                    </span>
+                  </div>
+                  <div className="button-row">
+                    <button
+                      className="text-button"
+                      disabled={pending}
+                      onClick={() => void updateSession(item.id)}
+                    >
+                      Set current
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={pending}
+                      onClick={() =>
+                        void deleteItem(
+                          `/academic-sessions/${encodeURIComponent(item.id)}`,
+                          "Academic session",
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="empty-state">
+                No academic sessions have been created.
+              </p>
+            )}
+          </section>
+          <form
+            className="panel page-stack"
+            onSubmit={(event) => void createSession(event)}
+          >
+            <h2>Create academic session</h2>
+            <label className="field-label">
+              Name
+              <input
+                className="field-control"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </label>
+            <div className="form-grid">
+              <label className="field-label">
+                Starts on
+                <input
+                  className="field-control"
+                  type="date"
+                  value={startsOn}
+                  onChange={(event) => setStartsOn(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Ends on
+                <input
+                  className="field-control"
+                  type="date"
+                  value={endsOn}
+                  onChange={(event) => setEndsOn(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <label className="session-option">
+              <input
+                type="checkbox"
+                checked={current}
+                onChange={(event) => setCurrent(event.target.checked)}
+              />
+              Set as current session
+            </label>
+            <button className="button primary-button" disabled={pending}>
+              {pending ? "Saving…" : "Create session"}
+            </button>
           </form>
           <section className="panel">
-            <div className="panel-heading"><div><h2>Semesters</h2><p>Each semester belongs to an academic session.</p></div></div>
-            {semesters.length ? semesters.map((item) => (
-              <div className="teaching-row" key={item.id}>
-                <div><b>{displayValue(item, ["name", "title", "code"]) ?? `Semester ${item.id}`}</b><span>{displayValue(item, ["starts_on"]) ?? ""} – {displayValue(item, ["ends_on"]) ?? ""}</span></div>
-                <div className="button-row">
-                  <button className="text-button" disabled={pending} onClick={() => editSemester(item)}>Edit</button>
-                  <button className="text-button" disabled={pending} onClick={() => void deleteItem(`/semesters/${encodeURIComponent(item.id)}`, "Semester")}>Delete</button>
-                </div>
+            <div className="panel-heading">
+              <div>
+                <h2>Semesters</h2>
+                <p>Each semester belongs to an academic session.</p>
               </div>
-            )) : <p className="empty-state">No semesters have been created.</p>}
+            </div>
+            {semesters.length ? (
+              semesters.map((item) => (
+                <div className="teaching-row" key={item.id}>
+                  <div>
+                    <b>
+                      {displayValue(item, ["name", "title", "code"]) ??
+                        `Semester ${item.id}`}
+                    </b>
+                    <span>
+                      {displayValue(item, ["starts_on"]) ?? ""} –{" "}
+                      {displayValue(item, ["ends_on"]) ?? ""}
+                    </span>
+                  </div>
+                  <div className="button-row">
+                    <button
+                      className="text-button"
+                      disabled={pending}
+                      onClick={() => editSemester(item)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={pending}
+                      onClick={() =>
+                        void deleteItem(
+                          `/semesters/${encodeURIComponent(item.id)}`,
+                          "Semester",
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="empty-state">No semesters have been created.</p>
+            )}
           </section>
-          <form className="panel page-stack" onSubmit={(event) => void createSemester(event)}>
+          <form
+            className="panel page-stack"
+            onSubmit={(event) => void createSemester(event)}
+          >
             <h2>{editingSemesterId ? "Update semester" : "Create semester"}</h2>
-            <label className="field-label">Academic session<select className="field-control" value={sessionId} onChange={(event) => setSessionId(event.target.value)} required><option value="">Choose a session</option>{sessions.map((item) => <option value={item.id} key={item.id}>{displayValue(item, ["name", "title", "code"]) ?? item.id}</option>)}</select></label>
-            <label className="field-label">Name<input className="field-control" value={semesterName} onChange={(event) => setSemesterName(event.target.value)} required /></label>
+            <label className="field-label">
+              Academic session
+              <select
+                className="field-control"
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+                required
+              >
+                <option value="">Choose a session</option>
+                {sessions.map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {displayValue(item, ["name", "title", "code"]) ?? item.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              Name
+              <input
+                className="field-control"
+                value={semesterName}
+                onChange={(event) => setSemesterName(event.target.value)}
+                required
+              />
+            </label>
             <div className="form-grid">
-              <label className="field-label">Starts on<input className="field-control" type="date" value={semesterStartsOn} onChange={(event) => setSemesterStartsOn(event.target.value)} required /></label>
-              <label className="field-label">Ends on<input className="field-control" type="date" value={semesterEndsOn} onChange={(event) => setSemesterEndsOn(event.target.value)} required /></label>
+              <label className="field-label">
+                Starts on
+                <input
+                  className="field-control"
+                  type="date"
+                  value={semesterStartsOn}
+                  onChange={(event) => setSemesterStartsOn(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Ends on
+                <input
+                  className="field-control"
+                  type="date"
+                  value={semesterEndsOn}
+                  onChange={(event) => setSemesterEndsOn(event.target.value)}
+                  required
+                />
+              </label>
             </div>
             <div className="button-row">
-              <button className="button primary-button" disabled={pending || !sessions.length}>{pending ? "Saving…" : editingSemesterId ? "Save semester" : "Create semester"}</button>
+              <button
+                className="button primary-button"
+                disabled={pending || !sessions.length}
+              >
+                {pending
+                  ? "Saving…"
+                  : editingSemesterId
+                    ? "Save semester"
+                    : "Create semester"}
+              </button>
               {editingSemesterId && (
-                <button className="button secondary-button" type="button" onClick={() => setEditingSemesterId("")}>Cancel edit</button>
+                <button
+                  className="button secondary-button"
+                  type="button"
+                  onClick={() => setEditingSemesterId("")}
+                >
+                  Cancel edit
+                </button>
               )}
             </div>
           </form>
@@ -832,9 +1109,11 @@ export function AcademicCalendar() {
 
 export function RoleAssignment() {
   const [userId, setUserId] = useState("");
-  const [scopeType, setScopeType] = useState<CreateRoleAssignmentRequest["scope_type"]>("department");
+  const [scopeType, setScopeType] =
+    useState<CreateRoleAssignmentRequest["scope_type"]>("department");
   const [scopeId, setScopeId] = useState("");
-  const [role, setRole] = useState<CreateRoleAssignmentRequest["role"]>("department_admin");
+  const [role, setRole] =
+    useState<CreateRoleAssignmentRequest["role"]>("department_admin");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -874,17 +1153,81 @@ export function RoleAssignment() {
         title="Administrator roles"
         subtitle="Assign a department or faculty administrator role within your authority."
       />
-      {error && <div className="form-error" role="alert">{error}</div>}
-      {message && <div className="form-info" role="status">{message}</div>}
-      <form className="panel page-stack" onSubmit={(event) => void assign(event)}>
-        <label className="field-label">User ID<input className="field-control" value={userId} onChange={(event) => setUserId(event.target.value)} required /></label>
-        <div className="form-grid">
-          <label className="field-label">Role<select className="field-control" value={role} onChange={(event) => { const nextRole = event.target.value as CreateRoleAssignmentRequest["role"]; setRole(nextRole); setScopeType(nextRole === "department_admin" ? "department" : "faculty"); }}><option value="department_admin">Department administrator</option><option value="faculty_admin">Faculty administrator</option></select></label>
-          <label className="field-label">Scope<select className="field-control" value={scopeType} onChange={(event) => setScopeType(event.target.value as CreateRoleAssignmentRequest["scope_type"])}><option value="department">Department</option><option value="faculty">Faculty</option></select></label>
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
         </div>
-        <label className="field-label">{scopeType === "department" ? "Department ID" : "Faculty ID"}<input className="field-control" value={scopeId} onChange={(event) => setScopeId(event.target.value)} required /></label>
-        <p>The backend validates that the requested role and scope are within the signed-in administrator's authority.</p>
-        <button className="button primary-button" disabled={pending}>{pending ? "Assigning…" : "Assign role"}</button>
+      )}
+      {message && (
+        <div className="form-info" role="status">
+          {message}
+        </div>
+      )}
+      <form
+        className="panel page-stack"
+        onSubmit={(event) => void assign(event)}
+      >
+        <label className="field-label">
+          User ID
+          <input
+            className="field-control"
+            value={userId}
+            onChange={(event) => setUserId(event.target.value)}
+            required
+          />
+        </label>
+        <div className="form-grid">
+          <label className="field-label">
+            Role
+            <select
+              className="field-control"
+              value={role}
+              onChange={(event) => {
+                const nextRole = event.target
+                  .value as CreateRoleAssignmentRequest["role"];
+                setRole(nextRole);
+                setScopeType(
+                  nextRole === "department_admin" ? "department" : "faculty",
+                );
+              }}
+            >
+              <option value="department_admin">Department administrator</option>
+              <option value="faculty_admin">Faculty administrator</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Scope
+            <select
+              className="field-control"
+              value={scopeType}
+              onChange={(event) =>
+                setScopeType(
+                  event.target
+                    .value as CreateRoleAssignmentRequest["scope_type"],
+                )
+              }
+            >
+              <option value="department">Department</option>
+              <option value="faculty">Faculty</option>
+            </select>
+          </label>
+        </div>
+        <label className="field-label">
+          {scopeType === "department" ? "Department ID" : "Faculty ID"}
+          <input
+            className="field-control"
+            value={scopeId}
+            onChange={(event) => setScopeId(event.target.value)}
+            required
+          />
+        </label>
+        <p>
+          The backend validates that the requested role and scope are within the
+          signed-in administrator's authority.
+        </p>
+        <button className="button primary-button" disabled={pending}>
+          {pending ? "Assigning…" : "Assign role"}
+        </button>
       </form>
     </div>
   );
@@ -893,12 +1236,89 @@ export function RoleAssignment() {
 export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [offerings, setOfferings] = useState<
-    SearchOfferingsResponse["items"]
+  const [departments, setDepartments] = useState<
+    DepartmentCatalogueResponse["items"]
   >([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentsError, setDepartmentsError] = useState("");
+  const [departmentReloadKey, setDepartmentReloadKey] = useState(0);
+  const [departmentId, setDepartmentId] = useState("");
+  const [courseCode, setCourseCode] = useState("");
+  const [courseTitle, setCourseTitle] = useState("");
+  const [courseKind, setCourseKind] =
+    useState<CreateCourseRequest["kind"]>("departmental");
+  const [courseDescription, setCourseDescription] = useState("");
+  const [courseCredits, setCourseCredits] = useState("");
+  const [coursePending, setCoursePending] = useState(false);
+  const [courseError, setCourseError] = useState("");
+  const [courseMessage, setCourseMessage] = useState("");
+  const [managedOffering, setManagedOffering] = useState<
+    SearchOfferingsResponse["items"][number] | null
+  >(null);
+  const [assignedLecturers, setAssignedLecturers] =
+    useState<OfferingLecturersResponse>([]);
+  const [lecturerAccountId, setLecturerAccountId] = useState("");
+  const [lecturersLoading, setLecturersLoading] = useState(false);
+  const [lecturersReady, setLecturersReady] = useState(false);
+  const [lecturerPending, setLecturerPending] = useState(false);
+  const [lecturerError, setLecturerError] = useState("");
+  const [lecturerMessage, setLecturerMessage] = useState("");
+  const [offerings, setOfferings] = useState<SearchOfferingsResponse["items"]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const departmentAdminRole = user.roles.find(
+    (role) =>
+      role.role === "department_admin" && role.scope_type === "department",
+  );
+  const scopedDepartmentId =
+    departmentAdminRole?.department_id ??
+    departmentAdminRole?.scope_id ??
+    undefined;
+
+  useEffect(() => {
+    if (scopedDepartmentId) {
+      setDepartmentId(scopedDepartmentId);
+      return;
+    }
+    let active = true;
+    setDepartmentsLoading(true);
+    setDepartmentsError("");
+    void apiRequest<DepartmentCatalogueResponse>(
+      "/departments?limit=200&offset=0",
+    )
+      .then(async (firstPage) => {
+        const items = [...firstPage.items];
+        let offset = items.length;
+        let hasMore = firstPage.has_more;
+        while (hasMore && active) {
+          const page = await apiRequest<DepartmentCatalogueResponse>(
+            `/departments?limit=200&offset=${offset}`,
+          );
+          items.push(...page.items);
+          offset += page.items.length;
+          hasMore = page.has_more && page.items.length > 0;
+        }
+        if (active) {
+          setDepartments(items);
+          if (items.length > 0) {
+            const firstId = readId(items[0]);
+            if (firstId) setDepartmentId(firstId);
+          }
+        }
+      })
+      .catch((caught: unknown) => {
+        if (active) setDepartmentsError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setDepartmentsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [departmentReloadKey, scopedDepartmentId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -938,6 +1358,124 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     };
   }, [debouncedQuery, reloadKey]);
 
+  async function createCourse(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCoursePending(true);
+    setCourseError("");
+    setCourseMessage("");
+    const payload: CreateCourseRequest = {
+      department_id: departmentId,
+      code: courseCode.trim(),
+      title: courseTitle.trim(),
+      ...(courseKind ? { kind: courseKind } : {}),
+      ...(courseDescription.trim()
+        ? { description: courseDescription.trim() }
+        : {}),
+      ...(courseCredits !== "" ? { credits: Number(courseCredits) } : {}),
+    };
+    try {
+      await apiRequest<CreateCourseResponse>("/courses", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setCourseMessage(`${payload.code} — ${payload.title} was created.`);
+      setCourseCode("");
+      setCourseTitle("");
+      setCourseDescription("");
+      setCourseCredits("");
+    } catch (caught) {
+      setCourseError(formatApiError(caught));
+    } finally {
+      setCoursePending(false);
+    }
+  }
+
+  async function openLecturerManager(
+    offering: SearchOfferingsResponse["items"][number],
+  ) {
+    setManagedOffering(offering);
+    setAssignedLecturers([]);
+    setLecturerAccountId("");
+    setLecturerError("");
+    setLecturerMessage("");
+    setLecturersLoading(true);
+    setLecturersReady(false);
+    try {
+      const current = await apiRequest<OfferingLecturersResponse>(
+        `/offerings/${encodeURIComponent(offering.offering_id)}/lecturers`,
+      );
+      setAssignedLecturers(current);
+      setLecturersReady(true);
+    } catch (caught) {
+      setLecturerError(formatApiError(caught));
+    } finally {
+      setLecturersLoading(false);
+    }
+  }
+
+  async function addOfferingLecturer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!managedOffering) return;
+    const id = lecturerAccountId.trim();
+    if (assignedLecturers.some((lecturer) => lecturer.id === id)) {
+      setLecturerError("That lecturer is already assigned to this offering.");
+      return;
+    }
+    setLecturerPending(true);
+    setLecturerError("");
+    setLecturerMessage("");
+    const existingLecturerIds = assignedLecturers.map(
+      ({ id: lecturerId }) => lecturerId,
+    );
+    const payload: SetOfferingLecturersRequest = {
+      lecturer_ids: [...existingLecturerIds, id],
+    };
+    try {
+      const updated = await apiRequest<SetOfferingLecturersResponse>(
+        `/offerings/${encodeURIComponent(managedOffering.offering_id)}/lecturers`,
+        {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        },
+      );
+      setAssignedLecturers(
+        updated.lecturer_ids.map(
+          (lecturerId) =>
+            assignedLecturers.find(
+              ({ id: currentId }) => currentId === lecturerId,
+            ) ??
+            { id: lecturerId, display_name: lecturerId, email: "" },
+        ),
+      );
+      setLecturersReady(true);
+      setLecturerAccountId("");
+      setLecturerMessage("Lecturer added to this offering.");
+      setReloadKey((key) => key + 1);
+      try {
+        const current = await apiRequest<OfferingLecturersResponse>(
+          `/offerings/${encodeURIComponent(managedOffering.offering_id)}/lecturers`,
+        );
+        setAssignedLecturers(current);
+      } catch (caught) {
+        setLecturerError(
+          `Lecturer was added, but the assigned lecturer details could not be refreshed: ${formatApiError(caught)}`,
+        );
+      }
+    } catch (caught) {
+      setLecturerError(formatApiError(caught));
+    } finally {
+      setLecturerPending(false);
+    }
+  }
+
+  const departmentOptions = scopedDepartmentId
+    ? [{ id: scopedDepartmentId, name: "Your department" }]
+    : departments.flatMap((department) => {
+        const id = readId(department);
+        const name = displayValue(department, ["name", "title"]) ?? id;
+        return id && name ? [{ id, name }] : [];
+      });
+
   return (
     <div className="page-stack">
       <PageHeading
@@ -946,6 +1484,129 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
         subtitle={`Courses and offerings visible to ${user.name}'s administrator scope, with their assigned lecturers.`}
       />
       <section className="panel">
+        <h2>Create a course</h2>
+        <p className="admin-offering-note">
+          Course creation is limited by your administrator scope. The backend
+          validates that the selected department is within that scope.
+        </p>
+        {courseError && (
+          <div className="form-error" role="alert">
+            {courseError}
+          </div>
+        )}
+        {courseMessage && (
+          <div className="form-info" role="status">
+            {courseMessage}
+          </div>
+        )}
+        {departmentsError && (
+          <div className="api-state-error" role="alert">
+            <p>{departmentsError}</p>
+            <button
+              className="text-button"
+              onClick={() => setDepartmentReloadKey((key) => key + 1)}
+              type="button"
+            >
+              Retry departments
+            </button>
+          </div>
+        )}
+        <form className="admin-course-form" onSubmit={createCourse}>
+          <label className="field-label">
+            Department
+            <select
+              className="field-control"
+              required
+              value={departmentId}
+              onChange={(event) => setDepartmentId(event.target.value)}
+              disabled={
+                departmentsLoading ||
+                coursePending ||
+                departmentOptions.length === 0
+              }
+            >
+              {departmentOptions.length === 0 && (
+                <option value="">
+                  {departmentsLoading
+                    ? "Loading departments…"
+                    : "No departments available"}
+                </option>
+              )}
+              {departmentOptions.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            Course code
+            <input
+              className="field-control"
+              required
+              value={courseCode}
+              onChange={(event) => setCourseCode(event.target.value)}
+            />
+          </label>
+          <label className="field-label">
+            Course title
+            <input
+              className="field-control"
+              required
+              value={courseTitle}
+              onChange={(event) => setCourseTitle(event.target.value)}
+            />
+          </label>
+          <label className="field-label">
+            Course kind
+            <select
+              className="field-control"
+              value={courseKind}
+              onChange={(event) =>
+                setCourseKind(
+                  event.target.value === "general" ? "general" : "departmental",
+                )
+              }
+            >
+              <option value="departmental">Departmental</option>
+              <option value="general">General</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Credits (optional)
+            <input
+              className="field-control"
+              type="number"
+              min="0"
+              step="1"
+              value={courseCredits}
+              onChange={(event) => setCourseCredits(event.target.value)}
+            />
+          </label>
+          <label className="field-label admin-course-description">
+            Description (optional)
+            <textarea
+              className="field-control"
+              value={courseDescription}
+              onChange={(event) => setCourseDescription(event.target.value)}
+              rows={3}
+            />
+          </label>
+          <button
+            className="button primary-button"
+            disabled={
+              coursePending ||
+              departmentsLoading ||
+              departmentOptions.length === 0
+            }
+            type="submit"
+          >
+            {coursePending ? "Creating course…" : "Create course"}
+          </button>
+        </form>
+      </section>
+      <section className="panel">
+        <h2>Existing offerings</h2>
         <label className="search-field admin-offering-search">
           <Icon name="search" />
           <input
@@ -956,8 +1617,8 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
           />
         </label>
         <p className="admin-offering-note">
-          Lecturer names are shown for each offering. This is not a directory
-          of staff who have no course assignments.
+          Lecturer names are shown for each offering. This is not a directory of
+          staff who have no course assignments.
         </p>
         {loading ? (
           <p role="status">Loading scoped courses and offerings…</p>
@@ -995,7 +1656,109 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
                       ? offering.lecturers.join(", ")
                       : "No lecturers assigned"}
                   </span>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => void openLecturerManager(offering)}
+                    aria-label={`Manage lecturers for ${offering.course_code}`}
+                  >
+                    {managedOffering?.offering_id === offering.offering_id
+                      ? "Refresh lecturers"
+                      : "Manage lecturers"}
+                  </button>
                 </div>
+                {managedOffering?.offering_id === offering.offering_id && (
+                  <div className="admin-lecturer-manager">
+                    <div className="panel-heading">
+                      <div>
+                        <h3>Assigned lecturers</h3>
+                        <p>
+                          Enter the lecturer’s account UUID. This is not a
+                          student number.
+                        </p>
+                      </div>
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => {
+                          setManagedOffering(null);
+                          setLecturerError("");
+                          setLecturerMessage("");
+                        }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {lecturerError && (
+                      <div className="form-error" role="alert">
+                        {lecturerError}
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() => void openLecturerManager(offering)}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {lecturerMessage && (
+                      <p className="form-info" role="status">
+                        {lecturerMessage}
+                      </p>
+                    )}
+                    {lecturersLoading ? (
+                      <p role="status">Loading assigned lecturers…</p>
+                    ) : !lecturersReady ? (
+                      <p>
+                        Load the current assignments before adding a lecturer
+                        so existing assignments are preserved.
+                      </p>
+                    ) : (
+                      <>
+                        {assignedLecturers.length ? (
+                          <ul className="admin-assigned-lecturers">
+                            {assignedLecturers.map((lecturer) => (
+                              <li key={lecturer.id}>
+                                <b>{lecturer.display_name}</b>
+                                <span>{lecturer.email}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="empty-state">
+                            No lecturers are assigned to this offering.
+                          </p>
+                        )}
+                        <form
+                          className="admin-add-lecturer-form"
+                          onSubmit={(event) =>
+                            void addOfferingLecturer(event)
+                          }
+                        >
+                          <label className="field-label">
+                            Lecturer account UUID
+                            <input
+                              className="field-control"
+                              value={lecturerAccountId}
+                              onChange={(event) =>
+                                setLecturerAccountId(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                          <button
+                            className="button secondary-button"
+                            disabled={lecturerPending}
+                          >
+                            {lecturerPending
+                              ? "Adding lecturer…"
+                              : "Add lecturer"}
+                          </button>
+                        </form>
+                      </>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>

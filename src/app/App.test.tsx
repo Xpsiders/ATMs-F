@@ -13,14 +13,17 @@ import { App } from "./App";
 import { server } from "@/test/setup";
 import type {
   CurrentUser,
+  CreateCourseRequest,
   DepartmentCatalogueResponse,
   EndSessionResponse,
   LiveClassesResponse,
+  OfferingLecturersResponse,
   OfferingsResponse,
   SearchOfferingsResponse,
   SessionCodeResponse,
   StartSessionRequest,
   StartSessionResponse,
+  SetOfferingLecturersRequest,
   StudentAttendanceResponse,
   StudentCoursesResponse,
   StudentTimetableResponse,
@@ -31,11 +34,7 @@ import {
   startMockSession,
   type DemoRole,
 } from "@/mocks/auth";
-import {
-  getDemoState,
-  resetDemoData,
-  updateDemoState,
-} from "@/mocks/store";
+import { getDemoState, resetDemoData, updateDemoState } from "@/mocks/store";
 
 vi.mock("@/shared/lib/geo", () => ({
   getCurrentPosition: vi
@@ -140,9 +139,13 @@ describe("Campus Attendance screens", () => {
     renderApp("/lecturer", true, "lecturer");
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Welcome, Dr. Ngozi Eze",
-      }, { timeout: 5_000 }),
+      await screen.findByRole(
+        "heading",
+        {
+          name: "Welcome, Dr. Ngozi Eze",
+        },
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByText("BIO 731 · API Lecturer's Assigned Course"),
@@ -159,7 +162,9 @@ describe("Campus Attendance screens", () => {
     const offeringSelect = await screen.findByRole("combobox", {
       name: "Offering",
     });
-    await waitFor(() => expect(offeringSelect).toHaveValue(assignedOfferings.items[0]!.id));
+    await waitFor(() =>
+      expect(offeringSelect).toHaveValue(assignedOfferings.items[0]!.id),
+    );
     expect(window.location.pathname).toBe("/lecturer/start");
     expect(
       screen.getByRole("link", { name: "CampusCheck home" }),
@@ -252,7 +257,8 @@ describe("Campus Attendance screens", () => {
 
     await screen.findByRole("heading", { name: "Your day at a glance" });
     await screen.findByText("Backend Live Course");
-    const livePanel = screen.getByRole("heading", { name: "Live now" })
+    const livePanel = screen
+      .getByRole("heading", { name: "Live now" })
       .closest("section");
     expect(livePanel).toHaveTextContent("Backend Live Course");
     expect(livePanel).toHaveTextContent("Backend Lecture Hall");
@@ -263,7 +269,8 @@ describe("Campus Attendance screens", () => {
       }),
     ).not.toBeInTheDocument();
 
-    const laterPanel = screen.getByRole("heading", { name: "Later today" })
+    const laterPanel = screen
+      .getByRole("heading", { name: "Later today" })
       .closest("section");
     expect(laterPanel).toHaveTextContent("Backend Upcoming Course");
     expect(laterPanel).toHaveTextContent("Backend Schedule Hall");
@@ -275,7 +282,9 @@ describe("Campus Attendance screens", () => {
     expect(
       screen.getByText("Live classes").closest(".summary-item"),
     ).toHaveTextContent("1");
-    expect(screen.getByText("API 404 · Backend Attendance Course")).toBeInTheDocument();
+    expect(
+      screen.getByText("API 404 · Backend Attendance Course"),
+    ).toBeInTheDocument();
     await screen.findByText("43%");
     expect(screen.getByText("43%")).toBeInTheDocument();
     expect(
@@ -322,10 +331,17 @@ describe("Campus Attendance screens", () => {
     renderApp("/");
 
     await screen.findByRole("heading", { name: "Your day at a glance" });
-    const laterPanel = screen.getByRole("heading", { name: "Later today" })
+    const laterPanel = screen
+      .getByRole("heading", { name: "Later today" })
       .closest("section");
-    expect(await within(laterPanel as HTMLElement).findByText("No more classes scheduled today")).toBeInTheDocument();
-    expect(within(laterPanel as HTMLElement).queryByText("Nothing scheduled today")).not.toBeInTheDocument();
+    expect(
+      await within(laterPanel as HTMLElement).findByText(
+        "No more classes scheduled today",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(laterPanel as HTMLElement).queryByText("Nothing scheduled today"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText("Classes today").closest(".summary-item"),
     ).toHaveTextContent("1 class");
@@ -494,9 +510,9 @@ describe("Campus Attendance screens", () => {
     expect(
       screen.getAllByText("You haven't registered for any courses yet"),
     ).not.toHaveLength(0);
-    expect(screen.getAllByRole("link", { name: "Find classes" })).not.toHaveLength(
-      0,
-    );
+    expect(
+      screen.getAllByRole("link", { name: "Find classes" }),
+    ).not.toHaveLength(0);
   });
 
   it("registers or requests a class through the API and shows pending status", async () => {
@@ -522,9 +538,7 @@ describe("Campus Attendance screens", () => {
     await user.click(
       await screen.findByRole("button", { name: "Request to join" }),
     );
-    expect(
-      await screen.findByText("Pending approval"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Pending approval")).toBeInTheDocument();
     expect(requests).toEqual(["10000000-0000-4000-8000-000000000305"]);
     expect(
       screen.getByRole("button", { name: "Request pending" }),
@@ -550,12 +564,10 @@ describe("Campus Attendance screens", () => {
     );
     renderApp("/courses");
 
-    expect(
-      await screen.findByRole("alert"),
-    ).toHaveTextContent("student_courses_unavailable");
-    expect(
-      screen.getByRole("button", { name: "Retry" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "student_courses_unavailable",
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("loads attendance history for the selected course offering", async () => {
@@ -593,9 +605,7 @@ describe("Campus Attendance screens", () => {
       "10000000-0000-4000-8000-000000000201",
     );
     expect(await screen.findByText(/Medical approval/)).toBeInTheDocument();
-    expect(requestedIds).toContain(
-      "10000000-0000-4000-8000-000000000201",
-    );
+    expect(requestedIds).toContain("10000000-0000-4000-8000-000000000201");
   });
 
   it("shows scoped courses and assigned lecturers to a department admin", async () => {
@@ -614,39 +624,155 @@ describe("Campus Attendance screens", () => {
     expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
     expect(screen.getByText("Mr. Chidi Obi")).toBeInTheDocument();
     expect(
-      screen.getByText(/not a directory of staff who have no course assignments/i),
+      screen.getByText(
+        /not a directory of staff who have no course assignments/i,
+      ),
     ).toBeInTheDocument();
   });
 
   it("shows scoped courses and assigned lecturers to a faculty admin", async () => {
+    const user = userEvent.setup();
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
-    const facultyAdmin: CurrentUser = {
-      id: "20000000-0000-4000-8000-000000000005",
-      name: "Faculty Administrator",
-      email: "faculty.admin@campus.example",
-      status: "active",
-      must_change_password: false,
-      roles: [
-        {
-          role: "faculty_admin",
-          scope_type: "faculty",
-          scope_id: "20000000-0000-4000-8000-000000000006",
-        },
-      ],
-    };
+    let createdDepartmentId = "";
     server.use(
-      http.get(`${apiBaseUrl}/me`, () => HttpResponse.json(facultyAdmin)),
+      http.post(`${apiBaseUrl}/courses`, async ({ request }) => {
+        const payload = (await request.json()) as CreateCourseRequest;
+        createdDepartmentId = payload.department_id;
+        return HttpResponse.json(
+          { id: "30000000-0000-4000-8000-000000000002" },
+          { status: 201 },
+        );
+      }),
     );
-    renderApp("/courses", true, "department-admin");
+    renderApp("/courses", true, "faculty-admin");
 
     expect(
-      await screen.findByRole("heading", { name: "Courses & offerings" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Courses & offerings" },
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByText(/Engineering Mathematics III/),
     ).toBeInTheDocument();
     expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Course code"), "CPE 401");
+    await user.type(screen.getByLabelText("Course title"), "Advanced Design");
+    await user.selectOptions(
+      screen.getByLabelText("Department"),
+      "10000000-0000-4000-8000-000000000004",
+    );
+    await user.click(screen.getByRole("button", { name: "Create course" }));
+    expect(
+      await screen.findByText("CPE 401 — Advanced Design was created."),
+    ).toBeInTheDocument();
+    expect(createdDepartmentId).toBe("10000000-0000-4000-8000-000000000004");
+  });
+
+  it("adds a lecturer without replacing the offering's current assignments", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const offeringId = "4c39d74e-7b7c-4cb0-8bd5-c8274905e3ce";
+    let assignedIds = ["20000000-0000-4000-8000-000000000002"];
+    let submittedIds: string[] = [];
+    server.use(
+      http.get(
+        `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
+        () =>
+          HttpResponse.json(
+            assignedIds.map((id) => ({
+              id,
+              display_name:
+                id === "20000000-0000-4000-8000-000000000002"
+                  ? "Dr. Ngozi Eze"
+                  : "Dr. Ada Okafor",
+              email:
+                id === "20000000-0000-4000-8000-000000000002"
+                  ? "ngozi.lecturer@campus.example"
+                  : "ada.okafor@example.com",
+            })) satisfies OfferingLecturersResponse,
+          ),
+      ),
+      http.put(
+        `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
+        async ({ request }) => {
+          const payload =
+            (await request.json()) as SetOfferingLecturersRequest;
+          submittedIds = payload.lecturer_ids;
+          assignedIds = payload.lecturer_ids;
+          return HttpResponse.json({ lecturer_ids: assignedIds });
+        },
+      ),
+    );
+    renderApp("/courses", true, "department-admin");
+    await screen.findByRole(
+      "heading",
+      { name: "Courses & offerings" },
+      { timeout: 5_000 },
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Manage lecturers for ENG 301",
+      }),
+    );
+    expect(await screen.findByText("ngozi.lecturer@campus.example")).toBeInTheDocument();
+    await user.type(
+      screen.getByLabelText("Lecturer account UUID"),
+      "20000000-0000-4000-8000-000000000010",
+    );
+    await user.click(screen.getByRole("button", { name: "Add lecturer" }));
+
+    expect(
+      await screen.findByText("Lecturer added to this offering."),
+    ).toBeInTheDocument();
+    expect(submittedIds).toEqual([
+      "20000000-0000-4000-8000-000000000002",
+      "20000000-0000-4000-8000-000000000010",
+    ]);
+    expect(await screen.findByText("Dr. Ada Okafor")).toBeInTheDocument();
+  });
+
+  it("creates a course using the selected department and generated API payload", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    let submitted: CreateCourseRequest | null = null;
+    server.use(
+      http.post(`${apiBaseUrl}/courses`, async ({ request }) => {
+        submitted = (await request.json()) as CreateCourseRequest;
+        return HttpResponse.json(
+          { id: "30000000-0000-4000-8000-000000000001" },
+          { status: 201 },
+        );
+      }),
+    );
+    renderApp("/courses", true, "department-admin");
+
+    await screen.findByRole("heading", { name: "Courses & offerings" });
+    await user.type(screen.getByLabelText("Course code"), "BIO 201");
+    await user.type(screen.getByLabelText("Course title"), "Cell Biology");
+    await user.selectOptions(screen.getByLabelText("Course kind"), "general");
+    await user.type(screen.getByLabelText("Credits (optional)"), "3");
+    await user.type(
+      screen.getByLabelText("Description (optional)"),
+      "An introduction to cell structure.",
+    );
+    await user.click(screen.getByRole("button", { name: "Create course" }));
+
+    expect(
+      await screen.findByText("BIO 201 — Cell Biology was created."),
+    ).toHaveAttribute("role", "status");
+    expect(submitted).toEqual({
+      department_id: "10000000-0000-4000-8000-000000000004",
+      code: "BIO 201",
+      title: "Cell Biology",
+      kind: "general",
+      description: "An introduction to cell structure.",
+      credits: 3,
+    });
   });
 
   it("shows scanner coverage loss and the fixed-code banner", async () => {
@@ -913,9 +1039,7 @@ describe("Campus Attendance screens", () => {
     confirm.mockRestore();
 
     await user.click(screen.getByRole("link", { name: "Session reports" }));
-    expect(
-      await screen.findByText(`Session ${sessionId}`),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(`Session ${sessionId}`)).toBeInTheDocument();
   });
 
   it("shows API field errors beside the start-session form", async () => {
@@ -966,9 +1090,7 @@ describe("Campus Attendance screens", () => {
         { timeout: 5000 },
       ),
     );
-    await waitFor(() =>
-      expect(getDemoState().sessions).toHaveLength(2),
-    );
+    await waitFor(() => expect(getDemoState().sessions).toHaveLength(2));
     await waitFor(
       () => expect(screen.getByText("726 519")).toBeInTheDocument(),
       { timeout: 5000 },
@@ -1100,9 +1222,7 @@ describe("Campus Attendance screens", () => {
         },
       ],
     };
-    server.use(
-      http.get(`${apiBaseUrl}/me`, () => HttpResponse.json(profile)),
-    );
+    server.use(http.get(`${apiBaseUrl}/me`, () => HttpResponse.json(profile)));
     renderApp("/", false);
 
     await user.click(
@@ -1213,9 +1333,13 @@ describe("Campus Attendance screens", () => {
     renderApp("/lecturer", true, "student");
 
     expect(
-      await screen.findByRole("heading", {
-        name: "You don't have access to this page",
-      }, { timeout: 5_000 }),
+      await screen.findByRole(
+        "heading",
+        {
+          name: "You don't have access to this page",
+        },
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Go to your home" }));
     expect(
@@ -1223,7 +1347,7 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the GET /me name, department ID, and level in app bar and profile", async () => {
+  it("shows the GET /me name and email in the app bar and department details in profile", async () => {
     renderApp("/profile");
 
     expect(
@@ -1231,8 +1355,12 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
     const identity = screen.getByLabelText("Signed-in user");
     expect(identity).toHaveTextContent("Amara Okafor");
-    expect(identity).toHaveTextContent(
+    expect(identity).toHaveTextContent("amara.student@campus.example");
+    expect(identity).not.toHaveTextContent(
       "10000000-0000-4000-8000-000000000003",
+    );
+    expect(identity).not.toHaveTextContent(
+      "20000000-0000-4000-8000-000000000001",
     );
     expect(identity).toHaveTextContent("Level 300");
     const details = screen.getByRole("region", { name: "Profile details" });

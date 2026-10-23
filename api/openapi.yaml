@@ -2569,7 +2569,7 @@ paths:
       security: [{BearerAuth: []}]
       parameters: [{$ref: "#/components/parameters/ResourceId"}]
       responses:
-        "200": {description: Assigned lecturer records., content: {application/json: {schema: {type: array, items: {type: object}}}}}
+        "200": {description: Assigned lecturer records., content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/OfferingLecturer"}}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {description: Caller cannot manage this offering., content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}}
     put:
@@ -2970,6 +2970,13 @@ components:
           type: integer
         has_more:
           type: boolean
+    OfferingLecturer:
+      type: object
+      required: [id, display_name, email]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string}
+        email: {type: string, format: email}
     Registration:
       type: object
       required: [student_id, status, on_roster]

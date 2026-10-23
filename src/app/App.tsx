@@ -145,6 +145,13 @@ function UserProfilePage({
 }) {
   const departmentId = getDepartmentId(user);
   const level = getAcademicLevel(user);
+  const roleLabel = user.roles.some(({ role: assignedRole }) =>
+    ["faculty_admin", "department_admin"].includes(assignedRole),
+  )
+    ? user.roles.some(({ role: assignedRole }) => assignedRole === "faculty_admin")
+      ? DEMO_ROLE_LABELS["faculty-admin"]
+      : DEMO_ROLE_LABELS["department-admin"]
+    : DEMO_ROLE_LABELS[role];
   return (
     <div className="page-stack">
       <SimplePage
@@ -165,7 +172,7 @@ function UserProfilePage({
           </div>
           <div>
             <dt>Role</dt>
-            <dd>{DEMO_ROLE_LABELS[role]}</dd>
+            <dd>{roleLabel}</dd>
           </div>
           <div>
             <dt>Department ID</dt>
@@ -638,7 +645,7 @@ export function App() {
             <div className="topbar-identity" aria-label="Signed-in user">
               <b>{currentUser.name}</b>
               <small>
-                {getDepartmentId(currentUser) ?? "Department ID not provided"}
+                {currentUser.email}
                 {" · "}
                 {getAcademicLevel(currentUser) === undefined
                   ? "Level not provided"

@@ -3,6 +3,7 @@ import type {
   CheckInRequest,
   CurrentUser,
   CreateAcademicSessionRequest,
+  CreateCourseRequest,
   CreateRoleAssignmentRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
@@ -12,6 +13,7 @@ import type {
   SignupRequestsResponse,
   StaffImportPreview,
   SearchOfferingsQuery,
+  SetOfferingLecturersRequest,
   StartSessionRequest,
   UpdateAcademicSessionRequest,
   UpdateSemesterRequest,
@@ -24,6 +26,7 @@ import {
 } from "@/mocks/auth";
 import {
   createDemoAcademicSession,
+  createDemoCourse,
   createDemoSemester,
   createDemoVenue,
   createDemoSession,
@@ -35,10 +38,12 @@ import {
   getDemoSessionCode,
   getDemoState,
   listDemoAcademicSessions,
+  listDemoCourses,
   listDemoDepartments,
   listDemoLiveClasses,
   listDemoPendingRegistrations,
   listDemoOfferings,
+  listDemoOfferingLecturers,
   listDemoSemesters,
   listDemoStudentAttendance,
   listDemoStudentCourses,
@@ -48,13 +53,13 @@ import {
   registerDemoOffering,
   searchDemoOfferings,
   setDemoSessionFixedCode,
+  setDemoOfferingLecturers,
   updateDemoAcademicSession,
   updateDemoSemester,
   updateDemoVenue,
 } from "@/mocks/store";
 
-const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
 function apiError(status: number, code: string, message: string) {
   return HttpResponse.json(
@@ -63,29 +68,22 @@ function apiError(status: number, code: string, message: string) {
   );
 }
 
-const DEMO_SIGNUP_REQUESTS: NonNullable<
-  SignupRequestsResponse["items"]
-> = [];
+const DEMO_SIGNUP_REQUESTS: NonNullable<SignupRequestsResponse["items"]> = [];
 
 export const handlers = [
   http.post(`${apiBaseUrl}/auth/password/forgot`, async ({ request }) => {
     const payload = (await request.json()) as RequestPasswordReset;
     requestDemoPasswordReset(payload.email);
-    return HttpResponse.json(
-      { status: "request_received" },
-      { status: 202 },
-    );
+    return HttpResponse.json({ status: "request_received" }, { status: 202 });
   }),
   http.post(`${apiBaseUrl}/auth/password/reset`, async ({ request }) => {
     const payload = (await request.json()) as ResetPasswordRequest;
-    if (
-      !resetDemoPassword(
-        payload.email,
-        payload.code,
-        payload.new_password,
-      )
-    )
-      return apiError(400, "invalid_reset_code", "The reset code is invalid or expired.");
+    if (!resetDemoPassword(payload.email, payload.code, payload.new_password))
+      return apiError(
+        400,
+        "invalid_reset_code",
+        "The reset code is invalid or expired.",
+      );
     return new HttpResponse(null, { status: 200 });
   }),
   http.post(`${apiBaseUrl}/imports/staff/preview`, async ({ request }) =>
@@ -109,7 +107,11 @@ export const handlers = [
         !payload.programme_id ||
         !payload.display_name)
     )
-      return apiError(400, "invalid_request", "Student details are required for approval.");
+      return apiError(
+        400,
+        "invalid_request",
+        "Student details are required for approval.",
+      );
     return new HttpResponse(null, { status: 200 });
   }),
   http.post(`${apiBaseUrl}/role-assignments`, async ({ request }) => {
@@ -118,7 +120,11 @@ export const handlers = [
       (payload.scope_type === "department" && !payload.department_id) ||
       (payload.scope_type === "faculty" && !payload.faculty_id)
     )
-      return apiError(400, "invalid_request", "The selected scope identifier is required.");
+      return apiError(
+        400,
+        "invalid_request",
+        "The selected scope identifier is required.",
+      );
     return new HttpResponse(null, { status: 201 });
   }),
   http.get(`${apiBaseUrl}/academic-sessions`, () =>
@@ -126,15 +132,24 @@ export const handlers = [
   ),
   http.post(`${apiBaseUrl}/academic-sessions`, async ({ request }) => {
     const payload = (await request.json()) as CreateAcademicSessionRequest;
-    return HttpResponse.json(createDemoAcademicSession(payload), { status: 201 });
+    return HttpResponse.json(createDemoAcademicSession(payload), {
+      status: 201,
+    });
   }),
-  http.patch(`${apiBaseUrl}/academic-sessions/:id`, async ({ params, request }) => {
-    const payload = (await request.json()) as UpdateAcademicSessionRequest;
-    const item = updateDemoAcademicSession(String(params.id), payload);
-    return item
-      ? HttpResponse.json(item)
-      : apiError(404, "resource_not_found", "Academic session was not found.");
-  }),
+  http.patch(
+    `${apiBaseUrl}/academic-sessions/:id`,
+    async ({ params, request }) => {
+      const payload = (await request.json()) as UpdateAcademicSessionRequest;
+      const item = updateDemoAcademicSession(String(params.id), payload);
+      return item
+        ? HttpResponse.json(item)
+        : apiError(
+            404,
+            "resource_not_found",
+            "Academic session was not found.",
+          );
+    },
+  ),
   http.delete(`${apiBaseUrl}/academic-sessions/:id`, ({ params }) =>
     deleteDemoAcademicSession(String(params.id))
       ? new HttpResponse(null, { status: 204 })
@@ -166,10 +181,13 @@ export const handlers = [
       student: "student",
       lecturer: "lecturer",
       "department-admin": "department_admin",
+      "faculty-admin": "faculty_admin",
       "institution-admin": "institution_admin",
     } as const;
     const scopeType =
       account.role === "institution-admin" ? "institution" : "department";
+    const roleScopeType =
+      account.role === "faculty-admin" ? "faculty" : scopeType;
     const departmentId =
       account.role === "student"
         ? "10000000-0000-4000-8000-000000000003"
@@ -178,6 +196,7 @@ export const handlers = [
       student: "20000000-0000-4000-8000-000000000001",
       lecturer: "20000000-0000-4000-8000-000000000002",
       "department-admin": "20000000-0000-4000-8000-000000000003",
+      "faculty-admin": "20000000-0000-4000-8000-000000000005",
       "institution-admin": "20000000-0000-4000-8000-000000000004",
     } as const;
     const profile: CurrentUser = {
@@ -189,9 +208,16 @@ export const handlers = [
       roles: [
         {
           role: roleByDemoRole[account.role],
-          scope_type: scopeType,
-          scope_id: scopeType === "institution" ? null : departmentId,
-          ...(scopeType === "department" ? { department_id: departmentId } : {}),
+          scope_type: roleScopeType,
+          scope_id:
+            roleScopeType === "institution"
+              ? null
+              : roleScopeType === "faculty"
+                ? "20000000-0000-4000-8000-000000000006"
+                : departmentId,
+          ...(roleScopeType === "department"
+            ? { department_id: departmentId }
+            : {}),
           ...(account.role === "student" ? { level: 300 } : {}),
         },
       ],
@@ -208,6 +234,78 @@ export const handlers = [
     getMockSession()
       ? HttpResponse.json(listDemoDepartments())
       : apiError(401, "unauthorized", "Sign in is required."),
+  ),
+  http.post(`${apiBaseUrl}/courses`, async ({ request }) => {
+    const account = getMockSession();
+    if (!account)
+      return apiError(403, "forbidden", "This account cannot create courses.");
+    const payload = (await request.json()) as CreateCourseRequest;
+    const departmentInScope =
+      account.role === "institution-admin" ||
+      (account.role === "department-admin" &&
+        payload.department_id === "10000000-0000-4000-8000-000000000004") ||
+      (account.role === "faculty-admin" &&
+        listDemoDepartments().items.some(
+          (department) => department.id === payload.department_id,
+        ));
+    if (!departmentInScope)
+      return apiError(
+        403,
+        "forbidden",
+        "This account cannot create courses in that department.",
+      );
+    return HttpResponse.json(createDemoCourse(payload), { status: 201 });
+  }),
+  http.get(`${apiBaseUrl}/courses`, () => {
+    const account = getMockSession();
+    return account &&
+      ["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+      ? HttpResponse.json(listDemoCourses())
+      : apiError(403, "forbidden", "This account cannot list courses.");
+  }),
+  http.get(`${apiBaseUrl}/offerings/:id/lecturers`, ({ params }) => {
+    const account = getMockSession();
+    if (
+      !account ||
+      ![
+        "department-admin",
+        "faculty-admin",
+        "institution-admin",
+      ].includes(account.role)
+    )
+      return apiError(403, "forbidden", "This account cannot manage offering lecturers.");
+    return HttpResponse.json(
+      listDemoOfferingLecturers(String(params.id)),
+    );
+  }),
+  http.put(
+    `${apiBaseUrl}/offerings/:id/lecturers`,
+    async ({ params, request }) => {
+      const account = getMockSession();
+      if (
+        !account ||
+        ![
+          "department-admin",
+          "faculty-admin",
+          "institution-admin",
+        ].includes(account.role)
+      )
+        return apiError(
+          403,
+          "forbidden",
+          "This account cannot manage offering lecturers.",
+        );
+      const payload = (await request.json()) as SetOfferingLecturersRequest;
+      const result = setDemoOfferingLecturers(
+        String(params.id),
+        payload.lecturer_ids,
+      );
+      return result
+        ? HttpResponse.json(result)
+        : apiError(404, "resource_not_found", "Offering was not found.");
+    },
   ),
   http.get(`${apiBaseUrl}/me/courses`, () =>
     getMockSession()?.role === "student"
@@ -260,9 +358,14 @@ export const handlers = [
     const role = getMockSession()?.role;
     return role === "student" ||
       role === "department-admin" ||
+      role === "faculty-admin" ||
       role === "institution-admin"
       ? HttpResponse.json(searchDemoOfferings(query))
-      : apiError(403, "forbidden", "This endpoint is not available to this account.");
+      : apiError(
+          403,
+          "forbidden",
+          "This endpoint is not available to this account.",
+        );
   }),
   http.post(`${apiBaseUrl}/offerings/:id/registrations`, ({ params }) => {
     if (getMockSession()?.role !== "student")
@@ -272,9 +375,7 @@ export const handlers = [
       ? HttpResponse.json(registration, { status: 201 })
       : apiError(409, "registration_closed", "Registration is closed.");
   }),
-  http.get(`${apiBaseUrl}/venues`, () =>
-    HttpResponse.json(listDemoVenues()),
-  ),
+  http.get(`${apiBaseUrl}/venues`, () => HttpResponse.json(listDemoVenues())),
   http.post(`${apiBaseUrl}/venues`, async ({ request }) => {
     const payload = (await request.json()) as CreateVenueRequest;
     createDemoVenue(payload);
@@ -283,7 +384,8 @@ export const handlers = [
   http.patch(`${apiBaseUrl}/venues/:id`, async ({ params, request }) => {
     const payload = (await request.json()) as UpdateVenueRequest;
     const item = updateDemoVenue(String(params.id), payload);
-    if (!item) return apiError(404, "resource_not_found", "Venue was not found.");
+    if (!item)
+      return apiError(404, "resource_not_found", "Venue was not found.");
     return HttpResponse.json({});
   }),
   http.delete(`${apiBaseUrl}/venues/:id`, ({ params }) =>
@@ -304,7 +406,11 @@ export const handlers = [
     const payload = (await request.json()) as StartSessionRequest;
     const response = createDemoSession(payload);
     if (!response)
-      return apiError(404, "resource_not_found", "Offering or venue was not found.");
+      return apiError(
+        404,
+        "resource_not_found",
+        "Offering or venue was not found.",
+      );
     return HttpResponse.json(response, { status: 201 });
   }),
   http.get(`${apiBaseUrl}/sessions/:id/code`, ({ params }) => {
@@ -320,7 +426,11 @@ export const handlers = [
       return apiError(404, "session_not_found", "Session was not found.");
     const payload = (await request.json()) as { rotating: false };
     if (payload.rotating !== false)
-      return apiError(400, "invalid_request", "The session can only be converted to fixed code.");
+      return apiError(
+        400,
+        "invalid_request",
+        "The session can only be converted to fixed code.",
+      );
     setDemoSessionFixedCode(sessionId, session.code);
     const response = getDemoSessionCode(sessionId);
     return response
@@ -347,7 +457,11 @@ export const handlers = [
         )
       : undefined;
     if (!student)
-      return apiError(403, "not_on_roster", "Student is not on the class roster.");
+      return apiError(
+        403,
+        "not_on_roster",
+        "Student is not on the class roster.",
+      );
     recordDemoCheckIn(student.id, session.id, "verified");
     return HttpResponse.json(
       {
@@ -369,8 +483,16 @@ function readSearchKind(
 }
 
 function parseStaffCsv(csv: string): StaffImportPreview {
-  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
-  const expectedHeaders = ["staff_no", "email", "display_name", "department_id"];
+  const lines = csv
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const expectedHeaders = [
+    "staff_no",
+    "email",
+    "display_name",
+    "department_id",
+  ];
   const headers = lines[0] ? parseCsvLine(lines[0]) : [];
   if (
     expectedHeaders.some((header, index) => headers[index] !== header) ||
@@ -378,7 +500,12 @@ function parseStaffCsv(csv: string): StaffImportPreview {
   )
     return {
       rows: [],
-      errors: [{ line: 1, message: `CSV headers must be ${expectedHeaders.join(", ")}.` }],
+      errors: [
+        {
+          line: 1,
+          message: `CSV headers must be ${expectedHeaders.join(", ")}.`,
+        },
+      ],
     };
 
   const rows: StaffImportPreview["rows"] = [];
@@ -391,11 +518,25 @@ function parseStaffCsv(csv: string): StaffImportPreview {
     } else if (!staff_no || !email || !display_name || !department_id) {
       errors.push({ line: index + 2, message: "All fields are required." });
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      errors.push({ line: index + 2, column: "email", message: "Email is invalid." });
+      errors.push({
+        line: index + 2,
+        column: "email",
+        message: "Email is invalid.",
+      });
     } else if (!/^[0-9a-f-]{36}$/i.test(department_id)) {
-      errors.push({ line: index + 2, column: "department_id", message: "Department ID must be a UUID." });
+      errors.push({
+        line: index + 2,
+        column: "department_id",
+        message: "Department ID must be a UUID.",
+      });
     } else {
-      rows.push({ line: index + 2, staff_no, email, display_name, department_id });
+      rows.push({
+        line: index + 2,
+        staff_no,
+        email,
+        display_name,
+        department_id,
+      });
     }
   });
   return { rows, errors };

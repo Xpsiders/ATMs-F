@@ -1907,8 +1907,86 @@
   display: grid;
   gap: 4px;
 }
+.admin-lecturer-manager {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.admin-lecturer-manager .panel-heading {
+  align-items: flex-start;
+}
+.admin-lecturer-manager .panel-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.admin-lecturer-manager .panel-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-assigned-lecturers {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+.admin-assigned-lecturers li {
+  display: grid;
+  gap: 3px;
+}
+.admin-assigned-lecturers span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-add-lecturer-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  max-width: 680px;
+}
+.admin-add-lecturer-form .field-control {
+  margin-top: 6px;
+  min-height: 44px;
+}
+.admin-add-lecturer-form .button {
+  min-height: 44px;
+}
 @media (max-width: 600px) {
   .admin-offering-row {
+    grid-template-columns: 1fr;
+  }
+}
+.admin-course-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 760px;
+}
+.admin-course-form .field-control {
+  margin-top: 6px;
+  min-height: 44px;
+}
+.admin-course-form textarea.field-control {
+  min-height: 84px;
+  resize: vertical;
+}
+.admin-course-description {
+  grid-column: 1 / -1;
+}
+.admin-course-form > .button {
+  justify-self: start;
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .admin-course-form {
+    grid-template-columns: 1fr;
+  }
+  .admin-course-description {
+    grid-column: auto;
+  }
+  .admin-add-lecturer-form {
     grid-template-columns: 1fr;
   }
 }
