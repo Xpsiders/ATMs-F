@@ -43,7 +43,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Lecturer | Lecturer enrolment | Placeholder | No lecturer enrolment flow is implemented. |
 | Admin | Import students / CSV preview and commit | Placeholder | Student CSV import is not present. |
 | Admin | Import staff / CSV preview and atomic commit | Done | Upload, size/type validation, server preview, row-error display, and commit gating are wired to `/imports/staff/preview` and `/imports/staff`. The API revalidates and commits atomically; mock preview/commit validates the documented headers and returns 422 for invalid rows. |
-| Admin | Courses and offerings management | Partial | Department and institution admins can browse scoped offerings through `/offerings/search`, including assigned lecturer names, with debounced search and loading, empty, and retryable error states. This is not a staff directory and does not implement create/edit/archive. |
+| Admin | Courses and offerings management | Partial | Department, faculty, and institution admins can browse offerings visible within their authenticated scope through `/offerings/search`, including assigned lecturer names, with debounced search and loading, empty, and retryable error states. Faculty-admin role mapping is covered by an App test. This is not a staff directory and does not implement create/edit/archive. |
 | Admin | Venue management | Done | Scoped venue create/update/deactivate and loading, empty, and error states use `/venues`; data refreshes from the list after mutations because mutation response fields are unspecified. Scanner/device-key registration remains unimplemented. |
 | Admin | Users and role assignment | Partial | Role assignment posts generated user/role/scope payloads and surfaces API errors. User and scope IDs are entered manually because the contract has no lookup endpoint; broader user management remains unimplemented. |
 | Admin | Academic calendar | Done | Lists and creates/updates/deletes academic sessions and semesters using generated request/response types; loading, empty, and error states are present. Generic catalogue items guarantee only IDs, so labels/dates are shown when returned. |
@@ -101,14 +101,14 @@ The following are not established yet: 375/768/1280 automated viewport coverage,
 
 ## Scoped admin courses and offerings
 
-Department and institution admins can browse offerings visible to their authenticated scope through `/offerings/search`; each result includes lecturer names assigned to that offering. The page includes debounced search and loading, empty, and retryable error states. There is no independent staff-directory endpoint, and course/ offering create, edit, and archive are still unimplemented.
+Department, faculty, and institution admins can browse offerings visible to their authenticated scope through `/offerings/search`; each result includes lecturer names assigned to that offering. The page includes debounced search and loading, empty, and retryable error states. Faculty-admin accounts are mapped to the admin workspace from the `faculty_admin` role returned by `GET /me`. There is no independent staff-directory endpoint, and course/offering create, edit, and archive are still unimplemented.
 
 | Command | Result |
 |---|---|
 | `pnpm lint` | Passed with 0 errors and 4 Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
 | `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
-| `pnpm test --maxWorkers=1` | Passed; 13 test files and 63 tests passed, including the department-admin scoped courses and assigned lecturer test. |
-| `pnpm build` | Passed; Vite transformed 310 modules and completed the production build. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and 64 tests passed, including department- and faculty-admin access to scoped courses and assigned lecturers. |
+| `pnpm build` | Passed; Vite transformed 310 modules and completed the production build. The first build run crashed while lint/typecheck/tests were running in parallel; the standalone retry passed. |
 
 ## Student API screens
 

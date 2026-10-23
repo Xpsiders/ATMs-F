@@ -618,6 +618,37 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows scoped courses and assigned lecturers to a faculty admin", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const facultyAdmin: CurrentUser = {
+      id: "20000000-0000-4000-8000-000000000005",
+      name: "Faculty Administrator",
+      email: "faculty.admin@campus.example",
+      status: "active",
+      must_change_password: false,
+      roles: [
+        {
+          role: "faculty_admin",
+          scope_type: "faculty",
+          scope_id: "20000000-0000-4000-8000-000000000006",
+        },
+      ],
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/me`, () => HttpResponse.json(facultyAdmin)),
+    );
+    renderApp("/courses", true, "department-admin");
+
+    expect(
+      await screen.findByRole("heading", { name: "Courses & offerings" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Engineering Mathematics III/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
+  });
+
   it("shows scanner coverage loss and the fixed-code banner", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
