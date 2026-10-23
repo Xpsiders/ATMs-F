@@ -4,6 +4,8 @@ import { apiRequest, setAccessToken } from "@/shared/lib/apiClient";
 import { ApiError, presentApiError } from "@/api/errors";
 import {
   DEMO_ACCOUNTS,
+  DEMO_INSTITUTION_ID,
+  DEMO_PASSWORD_RESET_CODE,
   DEMO_ROLE_LABELS,
   isMockMode,
   startMockSession,
@@ -15,6 +17,9 @@ import type {
   ChangePasswordRequest,
   LoginResponse,
   LoginRequest,
+  RequestPasswordReset,
+  RequestPasswordResetResponse,
+  ResetPasswordRequest,
   SignupClaimRequest,
   SignupVerifyRequest,
 } from "@/api/contracts";
@@ -229,6 +234,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
             : "code",
   );
   const [matric, setMatric] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -286,10 +292,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
         return;
       }
     }
-    if (
-      !isMock &&
-      (type === "forgot" || type === "reset" || type === "verify")
-    ) {
+    if (!isMock && type === "verify") {
       setMessage(
         "This flow is not available in the current API contract. Please contact your institution administrator.",
       );
@@ -297,7 +300,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
     }
     setPending(true);
     try {
-      if (!isMock) {
+      if (!isMock || type === "forgot" || type === "reset") {
         let endpoint: string | null = null;
         let payload:
           | SignupClaimRequest
@@ -305,7 +308,9 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
           | ChangePasswordRequest
           | null = null;
         if (type === "signup" && step === "identity") {
-          const institutionId = import.meta.env.VITE_INSTITUTION_ID;
+          const institutionId =
+            import.meta.env.VITE_INSTITUTION_ID ??
+            (isMock ? DEMO_INSTITUTION_ID : undefined);
           if (!institutionId) {
             setMessage("Set VITE_INSTITUTION_ID to claim an account.");
             return;
@@ -315,9 +320,12 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
             institution_id: institutionId,
             matric_no: matric,
             email,
+            department_id: departmentId,
           };
         } else if (type === "signup" && step === "password") {
-          const institutionId = import.meta.env.VITE_INSTITUTION_ID;
+          const institutionId =
+            import.meta.env.VITE_INSTITUTION_ID ??
+            (isMock ? DEMO_INSTITUTION_ID : undefined);
           if (!institutionId) {
             setMessage("Set VITE_INSTITUTION_ID to verify your account.");
             return;
@@ -335,6 +343,43 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
             current_password: currentPassword,
             new_password: password,
           };
+        } else if (type === "forgot") {
+          const institutionId =
+            import.meta.env.VITE_INSTITUTION_ID ??
+            (isMock ? DEMO_INSTITUTION_ID : undefined);
+          if (!institutionId) {
+            setMessage("Set VITE_INSTITUTION_ID to request a password reset.");
+            return;
+          }
+          const resetRequest: RequestPasswordReset = {
+            institution_id: institutionId,
+            email,
+          };
+          await apiRequest<RequestPasswordResetResponse>(
+            "/auth/password/forgot",
+            {
+              method: "POST",
+              body: JSON.stringify(resetRequest),
+            },
+          );
+        } else if (type === "reset") {
+          const institutionId =
+            import.meta.env.VITE_INSTITUTION_ID ??
+            (isMock ? DEMO_INSTITUTION_ID : undefined);
+          if (!institutionId) {
+            setMessage("Set VITE_INSTITUTION_ID to reset your password.");
+            return;
+          }
+          const resetRequest: ResetPasswordRequest = {
+            institution_id: institutionId,
+            email,
+            code,
+            new_password: password,
+          };
+          await apiRequest<void>("/auth/password/reset", {
+            method: "POST",
+            body: JSON.stringify(resetRequest),
+          });
         } else if (type === "signup" && step === "code") {
           endpoint = null;
         } else {
@@ -357,8 +402,8 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
           "If these details match an eligible student record, a verification code will be sent.",
         );
       } else if (type === "reset" && step === "code") {
-        setStep("password");
-        setMessage("Code verified. Choose a new password.");
+        setStep("done");
+        setMessage("Your password has been reset. You can now sign in.");
       } else if ((type === "signup" || type === "verify") && step === "code") {
         if (step === "code") {
           setStep("password");
@@ -372,7 +417,9 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
       } else if (type === "forgot") {
         setStep("done");
         setMessage(
-          "If an account matches that email, password reset instructions will be sent.",
+          isMock
+            ? `If an account matches that email, password reset instructions will be sent. Demo code: ${DEMO_PASSWORD_RESET_CODE}.`
+            : "If an account matches that email, password reset instructions will be sent.",
         );
       } else {
         setStep("done");
@@ -454,6 +501,16 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+              <label className="field-label" htmlFor="claim-department">
+                Department ID
+              </label>
+              <input
+                className="field-control"
+                id="claim-department"
+                value={departmentId}
+                onChange={(event) => setDepartmentId(event.target.value)}
                 required
               />
             </>
@@ -551,6 +608,8 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
                 ? "Please wait…"
                 : type === "signup" && step === "identity"
                   ? "Continue"
+                  : type === "reset"
+                    ? "Reset password"
                   : step === "code"
                     ? "Verify code"
                     : "Save password"}{" "}

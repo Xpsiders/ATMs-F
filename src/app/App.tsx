@@ -78,6 +78,26 @@ const AdminImportStudents = lazy(() =>
     default: module.ImportStudents,
   })),
 );
+const AdminSignupRequestReview = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.SignupRequestReview,
+  })),
+);
+const AdminVenueAdministration = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.VenueAdministration,
+  })),
+);
+const AdminAcademicCalendar = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.AcademicCalendar,
+  })),
+);
+const AdminRoleAssignment = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.RoleAssignment,
+  })),
+);
 
 function RoleGuard({
   role,
@@ -426,9 +446,33 @@ export function App() {
                 current={activePath}
               />
               <NavLink
-                label="Import students"
+                label="Import staff"
                 path="/admin/import"
                 icon="import"
+                current={activePath}
+              />
+              <NavLink
+                label="Signup requests"
+                path="/admin/signup-requests"
+                icon="users"
+                current={activePath}
+              />
+              <NavLink
+                label="Venues"
+                path="/admin/venues"
+                icon="home"
+                current={activePath}
+              />
+              <NavLink
+                label="Academic calendar"
+                path="/admin/academic-calendar"
+                icon="calendar"
+                current={activePath}
+              />
+              <NavLink
+                label="Administrator roles"
+                path="/admin/roles"
+                icon="profile"
                 current={activePath}
               />
               <NavLink
@@ -767,6 +811,50 @@ export function App() {
                     allowedRoles={["department-admin", "institution-admin"]}
                   >
                     <AdminImportStudents />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/admin/signup-requests"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminSignupRequestReview />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/admin/venues"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminVenueAdministration />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/admin/academic-calendar"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminAcademicCalendar />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/admin/roles"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminRoleAssignment />
                   </RoleGuard>
                 }
               />

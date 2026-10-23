@@ -33,6 +33,55 @@ export type VenueListResponse =
 export type Venue = VenueListResponse["items"][number];
 export type OfferingsResponse =
   operations["getMyOfferings"]["responses"][200]["content"]["application/json"];
+export type StaffImportRequest =
+  operations["previewStaffImport"]["requestBody"]["content"]["text/csv"];
+export type StaffImportPreview =
+  operations["previewStaffImport"]["responses"][200]["content"]["application/json"];
+export type StaffImportCommitResponse =
+  operations["commitStaffImport"]["responses"][201]["content"]["application/json"];
+export type SignupRequestsResponse =
+  operations["listSignupRequests"]["responses"][200]["content"]["application/json"];
+export type ReviewSignupRequest =
+  operations["reviewSignupRequest"]["requestBody"]["content"]["application/json"];
+export type CreateRoleAssignmentRequest =
+  operations["createRoleAssignment"]["requestBody"]["content"]["application/json"];
+export type AcademicSessionsResponse =
+  operations["listAcademicSessions"]["responses"][200]["content"]["application/json"];
+export type CreateAcademicSessionRequest =
+  operations["createAcademicSession"]["requestBody"]["content"]["application/json"];
+export type UpdateAcademicSessionRequest =
+  operations["updateAcademicSession"]["requestBody"]["content"]["application/json"];
+export type SemestersResponse =
+  operations["listSemesters"]["responses"][200]["content"]["application/json"];
+export type CreateSemesterRequest =
+  operations["createSemester"]["requestBody"]["content"]["application/json"];
+export type UpdateSemesterRequest =
+  operations["updateSemester"]["requestBody"]["content"]["application/json"];
+export type CreateVenueRequest =
+  operations["createVenue"]["requestBody"]["content"]["application/json"];
+export type CreateVenueResponse =
+  operations["createVenue"]["responses"][201]["content"]["application/json"];
+export type UpdateVenueRequest =
+  operations["updateVenue"]["requestBody"]["content"]["application/json"];
+export type UpdateVenueResponse =
+  operations["updateVenue"]["responses"][200]["content"]["application/json"];
+export type RequestPasswordReset =
+  operations["requestPasswordReset"]["requestBody"]["content"]["application/json"];
+export type RequestPasswordResetResponse =
+  operations["requestPasswordReset"]["responses"][202]["content"]["application/json"];
+export type ResetPasswordRequest =
+  operations["resetPassword"]["requestBody"]["content"]["application/json"];
+export type CreateAcademicSessionResponse =
+  operations["createAcademicSession"]["responses"][201]["content"]["application/json"];
+export type UpdateAcademicSessionResponse =
+  operations["updateAcademicSession"]["responses"][200]["content"]["application/json"];
+export type DeleteAcademicSessionResponse =
+  operations["deleteAcademicSession"]["responses"][204];
+export type CreateSemesterResponse =
+  operations["createSemester"]["responses"][201]["content"]["application/json"];
+export type UpdateSemesterResponse =
+  operations["updateSemester"]["responses"][200]["content"]["application/json"];
+export type DeleteSemesterResponse = operations["deleteSemester"]["responses"][204];
 export type StartSessionRequest =
   operations["startSession"]["requestBody"]["content"]["application/json"];
 export type StartSessionResponse =

@@ -2,20 +2,44 @@ import { http, HttpResponse } from "msw";
 import type {
   CheckInRequest,
   CurrentUser,
+  CreateAcademicSessionRequest,
+  CreateRoleAssignmentRequest,
+  CreateSemesterRequest,
+  CreateVenueRequest,
+  RequestPasswordReset,
+  ResetPasswordRequest,
+  ReviewSignupRequest,
+  SignupRequestsResponse,
+  StaffImportPreview,
   SearchOfferingsQuery,
   StartSessionRequest,
+  UpdateAcademicSessionRequest,
+  UpdateSemesterRequest,
+  UpdateVenueRequest,
 } from "@/api/contracts";
-import { getMockSession } from "@/mocks/auth";
 import {
+  getMockSession,
+  requestDemoPasswordReset,
+  resetDemoPassword,
+} from "@/mocks/auth";
+import {
+  createDemoAcademicSession,
+  createDemoSemester,
+  createDemoVenue,
   createDemoSession,
+  deactivateDemoVenue,
+  deleteDemoAcademicSession,
+  deleteDemoSemester,
   endDemoSession,
   getDemoSession,
   getDemoSessionCode,
   getDemoState,
+  listDemoAcademicSessions,
   listDemoDepartments,
   listDemoLiveClasses,
   listDemoPendingRegistrations,
   listDemoOfferings,
+  listDemoSemesters,
   listDemoStudentAttendance,
   listDemoStudentCourses,
   listDemoStudentTimetable,
@@ -24,6 +48,9 @@ import {
   registerDemoOffering,
   searchDemoOfferings,
   setDemoSessionFixedCode,
+  updateDemoAcademicSession,
+  updateDemoSemester,
+  updateDemoVenue,
 } from "@/mocks/store";
 
 const apiBaseUrl =
@@ -36,7 +63,102 @@ function apiError(status: number, code: string, message: string) {
   );
 }
 
+const DEMO_SIGNUP_REQUESTS: NonNullable<
+  SignupRequestsResponse["items"]
+> = [];
+
 export const handlers = [
+  http.post(`${apiBaseUrl}/auth/password/forgot`, async ({ request }) => {
+    const payload = (await request.json()) as RequestPasswordReset;
+    requestDemoPasswordReset(payload.email);
+    return HttpResponse.json(
+      { status: "request_received" },
+      { status: 202 },
+    );
+  }),
+  http.post(`${apiBaseUrl}/auth/password/reset`, async ({ request }) => {
+    const payload = (await request.json()) as ResetPasswordRequest;
+    if (
+      !resetDemoPassword(
+        payload.email,
+        payload.code,
+        payload.new_password,
+      )
+    )
+      return apiError(400, "invalid_reset_code", "The reset code is invalid or expired.");
+    return new HttpResponse(null, { status: 200 });
+  }),
+  http.post(`${apiBaseUrl}/imports/staff/preview`, async ({ request }) =>
+    HttpResponse.json(parseStaffCsv(await request.text())),
+  ),
+  http.post(`${apiBaseUrl}/imports/staff`, async ({ request }) => {
+    const preview = parseStaffCsv(await request.text());
+    return preview.errors.length
+      ? HttpResponse.json(preview, { status: 422 })
+      : HttpResponse.json(preview, { status: 201 });
+  }),
+  http.get(`${apiBaseUrl}/signup-requests`, () =>
+    HttpResponse.json({ items: DEMO_SIGNUP_REQUESTS }),
+  ),
+  http.post(`${apiBaseUrl}/signup-requests/:id/review`, async ({ request }) => {
+    const payload = (await request.json()) as ReviewSignupRequest;
+    if (
+      payload.status === "approved" &&
+      (!payload.department_id ||
+        !payload.level ||
+        !payload.programme_id ||
+        !payload.display_name)
+    )
+      return apiError(400, "invalid_request", "Student details are required for approval.");
+    return new HttpResponse(null, { status: 200 });
+  }),
+  http.post(`${apiBaseUrl}/role-assignments`, async ({ request }) => {
+    const payload = (await request.json()) as CreateRoleAssignmentRequest;
+    if (
+      (payload.scope_type === "department" && !payload.department_id) ||
+      (payload.scope_type === "faculty" && !payload.faculty_id)
+    )
+      return apiError(400, "invalid_request", "The selected scope identifier is required.");
+    return new HttpResponse(null, { status: 201 });
+  }),
+  http.get(`${apiBaseUrl}/academic-sessions`, () =>
+    HttpResponse.json(listDemoAcademicSessions()),
+  ),
+  http.post(`${apiBaseUrl}/academic-sessions`, async ({ request }) => {
+    const payload = (await request.json()) as CreateAcademicSessionRequest;
+    return HttpResponse.json(createDemoAcademicSession(payload), { status: 201 });
+  }),
+  http.patch(`${apiBaseUrl}/academic-sessions/:id`, async ({ params, request }) => {
+    const payload = (await request.json()) as UpdateAcademicSessionRequest;
+    const item = updateDemoAcademicSession(String(params.id), payload);
+    return item
+      ? HttpResponse.json(item)
+      : apiError(404, "resource_not_found", "Academic session was not found.");
+  }),
+  http.delete(`${apiBaseUrl}/academic-sessions/:id`, ({ params }) =>
+    deleteDemoAcademicSession(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : apiError(404, "resource_not_found", "Academic session was not found."),
+  ),
+  http.get(`${apiBaseUrl}/semesters`, () =>
+    HttpResponse.json(listDemoSemesters()),
+  ),
+  http.post(`${apiBaseUrl}/semesters`, async ({ request }) => {
+    const payload = (await request.json()) as CreateSemesterRequest;
+    return HttpResponse.json(createDemoSemester(payload), { status: 201 });
+  }),
+  http.patch(`${apiBaseUrl}/semesters/:id`, async ({ params, request }) => {
+    const payload = (await request.json()) as UpdateSemesterRequest;
+    const item = updateDemoSemester(String(params.id), payload);
+    return item
+      ? HttpResponse.json(item)
+      : apiError(404, "resource_not_found", "Semester was not found.");
+  }),
+  http.delete(`${apiBaseUrl}/semesters/:id`, ({ params }) =>
+    deleteDemoSemester(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : apiError(404, "resource_not_found", "Semester was not found."),
+  ),
   http.get(`${apiBaseUrl}/me`, () => {
     const account = getMockSession();
     if (!account) return apiError(401, "unauthorized", "Sign in is required.");
@@ -150,6 +272,22 @@ export const handlers = [
   http.get(`${apiBaseUrl}/venues`, () =>
     HttpResponse.json(listDemoVenues()),
   ),
+  http.post(`${apiBaseUrl}/venues`, async ({ request }) => {
+    const payload = (await request.json()) as CreateVenueRequest;
+    createDemoVenue(payload);
+    return HttpResponse.json({}, { status: 201 });
+  }),
+  http.patch(`${apiBaseUrl}/venues/:id`, async ({ params, request }) => {
+    const payload = (await request.json()) as UpdateVenueRequest;
+    const item = updateDemoVenue(String(params.id), payload);
+    if (!item) return apiError(404, "resource_not_found", "Venue was not found.");
+    return HttpResponse.json({});
+  }),
+  http.delete(`${apiBaseUrl}/venues/:id`, ({ params }) =>
+    deactivateDemoVenue(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : apiError(404, "resource_not_found", "Venue was not found."),
+  ),
   http.get(`${apiBaseUrl}/me/live-classes`, () => {
     const account = getMockSession();
     const student = account
@@ -225,4 +363,61 @@ function readSearchKind(
   value: string | null,
 ): SearchOfferingsQuery["kind"] | undefined {
   return value === "departmental" || value === "general" ? value : undefined;
+}
+
+function parseStaffCsv(csv: string): StaffImportPreview {
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
+  const expectedHeaders = ["staff_no", "email", "display_name", "department_id"];
+  const headers = lines[0] ? parseCsvLine(lines[0]) : [];
+  if (
+    expectedHeaders.some((header, index) => headers[index] !== header) ||
+    headers.length !== expectedHeaders.length
+  )
+    return {
+      rows: [],
+      errors: [{ line: 1, message: `CSV headers must be ${expectedHeaders.join(", ")}.` }],
+    };
+
+  const rows: StaffImportPreview["rows"] = [];
+  const errors: StaffImportPreview["errors"] = [];
+  lines.slice(1).forEach((line, index) => {
+    const values = parseCsvLine(line);
+    const [staff_no, email, display_name, department_id] = values;
+    if (values.length !== expectedHeaders.length) {
+      errors.push({ line: index + 2, message: "Expected four CSV columns." });
+    } else if (!staff_no || !email || !display_name || !department_id) {
+      errors.push({ line: index + 2, message: "All fields are required." });
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push({ line: index + 2, column: "email", message: "Email is invalid." });
+    } else if (!/^[0-9a-f-]{36}$/i.test(department_id)) {
+      errors.push({ line: index + 2, column: "department_id", message: "Department ID must be a UUID." });
+    } else {
+      rows.push({ line: index + 2, staff_no, email, display_name, department_id });
+    }
+  });
+  return { rows, errors };
+}
+
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      fields.push(field.trim());
+      field = "";
+    } else {
+      field += character;
+    }
+  }
+  fields.push(field.trim());
+  return fields;
 }

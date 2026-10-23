@@ -52,8 +52,14 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
   },
 ];
 
+export const DEMO_INSTITUTION_ID =
+  "10000000-0000-4000-8000-000000000001";
+
 const SESSION_KEY = "campuscheck-mock-role";
 let activeAccount: DemoAccount | null = null;
+const passwordOverrides = new Map<string, string>();
+const pendingPasswordResets = new Set<string>();
+export const DEMO_PASSWORD_RESET_CODE = "123456";
 
 export function isMockMode(): boolean {
   return (
@@ -94,9 +100,43 @@ export function startMockSessionWithCredentials(
   const account = DEMO_ACCOUNTS.find(
     (candidate) =>
       candidate.email.toLowerCase() === email.trim().toLowerCase() &&
-      candidate.password === password,
+      (passwordOverrides.get(candidate.email.toLowerCase()) ??
+        candidate.password) === password,
   );
   return account ? startMockSession(account.role) : null;
+}
+
+export function requestDemoPasswordReset(email: string): void {
+  if (
+    DEMO_ACCOUNTS.some(
+      (account) => account.email.toLowerCase() === email.trim().toLowerCase(),
+    )
+  )
+    pendingPasswordResets.add(email.trim().toLowerCase());
+}
+
+export function resetDemoPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): boolean {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (
+    code !== DEMO_PASSWORD_RESET_CODE ||
+    !pendingPasswordResets.has(normalizedEmail) ||
+    !DEMO_ACCOUNTS.some(
+      (account) => account.email.toLowerCase() === normalizedEmail,
+    )
+  )
+    return false;
+  passwordOverrides.set(normalizedEmail, newPassword);
+  pendingPasswordResets.delete(normalizedEmail);
+  return true;
+}
+
+export function resetDemoPasswordState(): void {
+  passwordOverrides.clear();
+  pendingPasswordResets.clear();
 }
 
 export function clearMockSession(): void {

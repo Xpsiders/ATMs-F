@@ -32,6 +32,15 @@ operations and payloads; frontend aliases are maintained in
 | `GET /sessions/{id}/report?format=csv` | Returns report JSON or `text/csv`. |
 | `GET /sessions/{id}/roster-sheet` | Returns a paginated `RosterPage` (`items` with `display_name` and `matric_no`) or CSV. |
 | `POST /sessions/{id}/overrides/bulk` | Requires student IDs, status (`present`, `absent`, `late`, `excused`), reason code, and optional note; results use `applied` and optional `error_code`. |
+| `POST /imports/staff/preview` and `POST /imports/staff` | Both accept a raw `text/csv` body with `staff_no,email,display_name,department_id` headers. Preview returns parsed rows and row errors; commit revalidates and is atomic, returning 422 with row errors without committing any row. |
+| `GET /signup-requests` | Returns pending requests scoped to the administrator's departments. The schema declares `items` as an array of unspecified objects, so the UI only enables review when it can read an `id` and does not assume request fields. |
+| `POST /signup-requests/{id}/review` | Requires `status` (`approved` or `rejected`). Approval additionally sends `department_id`, `level`, `programme_id`, and `display_name`; the endpoint documents scope enforcement and audit recording. |
+| `POST /auth/password/forgot` | Requires `institution_id` and `email`; returns the same 202 acknowledgement regardless of whether the account exists. |
+| `POST /auth/password/reset` | Requires `institution_id`, `email`, one-time `code`, and `new_password` (12–72 characters). The backend enforces the attempt cap/rate limit; its exact threshold is not published, so the UI displays API errors rather than inventing a retry count. |
+| `GET /venues` | Returns paginated venues with `active` and optional `department_id` in addition to location and radius. |
+| `POST /venues` / `PATCH /venues/{id}` / `DELETE /venues/{id}` | Create, update, or deactivate scoped venues. Create/update response schemas are generic objects without declared properties; the UI refreshes `GET /venues` after mutations instead of relying on response fields. |
+| `GET/POST/PATCH/DELETE /academic-sessions` and `/semesters` | Lists are paginated generic catalogue items that guarantee only `id`; the UI reads optional names, dates, and parent-session IDs when present. Create/update bodies use generated request types; delete returns 204. |
+| `POST /role-assignments` | Assigns only `department_admin` or `faculty_admin` with the matching `scope_type` and scope UUID. The UI collects the user/scope UUIDs because the contract exposes no user or faculty lookup for this form. |
 
 `VITE_INSTITUTION_ID` must be set to the institution UUID for real login and
 student-claim requests. The repository does not provide an institution-specific
@@ -50,12 +59,20 @@ radius are copied by the backend from the selected venue. The returned
 
 ## Operations not present in the synced contract
 
-The current OpenAPI does not define forgot-password, reset-password, standalone
-signup-code verification, signup-password, or single-student override
-operations. In real-API mode the corresponding unsupported auth flows report
-that the current contract does not support them; the lecturer uses the defined
-bulk override endpoint for one or more selected students. Do not add guessed
-routes or payload fields without a backend contract update.
+The current OpenAPI does not define standalone signup-code verification,
+signup-password, or single-student override operations. In real-API mode the
+corresponding unsupported auth flows report that the current contract does not
+support them; the lecturer uses the defined bulk override endpoint for one or
+more selected students. Do not add guessed routes or payload fields without a
+backend contract update.
+
+The email outbox retry worker is backend infrastructure. The contract exposes
+no worker control or email-delivery endpoint, so it is intentionally not
+represented as a frontend screen or operation.
+
+The development mock password-reset flow uses a one-time demo code maintained
+only in `src/mocks/`; it is not a production default. The mock enforces
+single-use behavior but does not model the backend's unpublished attempt cap.
 
 The synced student contract includes the requested course, timetable,
 attendance, pending registration, search, and registration operations. The

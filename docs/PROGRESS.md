@@ -17,8 +17,8 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Auth | Login and logout | Done | Real API login path and mock login work. Mock refresh returns 401 without a session; demo panel offers one-click student, lecturer, department-admin, institution-admin login and reset/logout. Tests cover role dashboards and logout. |
 | Auth | Signup / claim student account | Placeholder | Real mode calls the contract's claim endpoint and requires `VITE_INSTITUTION_ID`; the mock form still advances without a mock claim mutation. |
 | Auth | Verify email / one-time code | Placeholder | Real mode submits code and password together to the contract's verify-email endpoint; mock mode does not validate a code or verify an account. |
-| Auth | Forgot password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling a guessed endpoint. |
-| Auth | Reset password | Placeholder | Not in the current API contract; real mode reports this limitation instead of calling guessed endpoints. |
+| Auth | Forgot password | Done | Calls `POST /auth/password/forgot`; the backend's enumeration-safe 202 response is shown generically. Mock mode returns the same shape and provides its test code only in the development UI. |
+| Auth | Reset password | Done | Calls `POST /auth/password/reset` with the generated request type. API errors, including the backend's attempt-cap/rate-limit response, are displayed; mock reset codes are single-use. The backend's cap threshold is not specified in OpenAPI. |
 | Auth | Change password | Placeholder | Real mode calls the supported change-password operation; mock mode does not change a demo account password. |
 | Student | Home / daily schedule / attendance snapshot | Done | Loads live classes from `/me/live-classes`, later classes from `/me/timetable`, and threshold attendance from `/me/courses`; renders API venue and already-checked-in status, parses offset-qualified schedule times in Africa/Lagos, and distinguishes an empty timetable from a day with no remaining classes. Resources have loading/error handling and explicit empty states. |
 | Student | Find classes / search and filters | Done | Debounced search and department/level/kind filters call typed `/offerings/search`; results use API registration status and display closed, pending, approved, and available states. |
@@ -30,7 +30,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Attendance history | Done | Course selector loads `/me/courses`, then per-course records from `/me/attendance`; loading/error/retry and no-courses/no-records states are implemented. |
 | Student | Attendance disputes | Placeholder | Informational page only; no dispute submission or status tracking. |
 | Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
-| Lecturer | Offerings / teaching list | Done | Displays the signed-in lecturer's name and offerings returned by authenticated `/me/offerings`; loading, error/retry, empty states, and per-offering start links that select the matching offering are implemented. Real-backend assignment scoping remains unverified. |
+| Lecturer | Offerings / teaching list | Done | Displays the signed-in lecturer's name and offerings returned by authenticated `/me/offerings`, including `session_open` and nullable `next_timetable_slot`; loading, error/retry, empty states, and per-offering start links that select the matching offering are implemented. Real-backend assignment scoping remains unverified. |
 | Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
 | Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for `GET /sessions/{id}/code` polling and `POST /sessions/{id}/end`; errors display the API code/message. The roster and aggregate counts are still seeded. |
 | Lecturer | Projector mode | Done | Fullscreen request, scalable code and theme toggle are available; real projector behavior is unverified. |
@@ -41,11 +41,12 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Lecturer | Single and bulk attendance override | Done | Dialog validates “other” explanation, shows per-row mock results, updates shared attendance and records mock audit entries. |
 | Lecturer | Print attendance sheet | Done | Print-friendly roster reads all seeded students and invokes browser print; actual paper output is unverified. |
 | Lecturer | Lecturer enrolment | Placeholder | No lecturer enrolment flow is implemented. |
-| Admin | Import students / CSV preview and commit | Placeholder | File checks work, but preview rows are hard-coded and commit is disabled; no parsing or mock import mutation. |
+| Admin | Import students / CSV preview and commit | Placeholder | Student CSV import is not present. |
+| Admin | Import staff / CSV preview and atomic commit | Done | Upload, size/type validation, server preview, row-error display, and commit gating are wired to `/imports/staff/preview` and `/imports/staff`. The API revalidates and commits atomically; mock preview/commit validates the documented headers and returns 422 for invalid rows. |
 | Admin | Courses and offerings management | Placeholder | No create/edit/archive flow. |
-| Admin | Venues, scanners and device-key registration | Placeholder | No registration or key-reveal/save flow. |
-| Admin | Users and roles management | Placeholder | No user/role management flow. |
-| Admin | Academic calendar | Placeholder | No calendar management flow. |
+| Admin | Venue management | Done | Scoped venue create/update/deactivate and loading, empty, and error states use `/venues`; data refreshes from the list after mutations because mutation response fields are unspecified. Scanner/device-key registration remains unimplemented. |
+| Admin | Users and role assignment | Partial | Role assignment posts generated user/role/scope payloads and surfaces API errors. User and scope IDs are entered manually because the contract has no lookup endpoint; broader user management remains unimplemented. |
+| Admin | Academic calendar | Done | Lists and creates/updates/deletes academic sessions and semesters using generated request/response types; loading, empty, and error states are present. Generic catalogue items guarantee only IDs, so labels/dates are shown when returned. |
 | Admin | Department dashboard | Placeholder | Summary text only; no dashboard data flow. |
 | Admin | Institution dashboard | Placeholder | Summary text only; no dashboard data flow. |
 | Admin | Abuse events | Placeholder | No event review/action flow. |
@@ -67,7 +68,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | No offline mutation queue/retry | Done | Check-in is disabled offline and mutations are not queued; real airplane-mode behavior remains a manual check. |
 | Shared mock store and reset | Done | Shared state covers check-in, enrollment, history, lecturer roster/report, overrides, scanner/session state and print roster; reset restores fixture state. |
 | Route-level code splitting and student initial bundle target | Done | Initial student JS **112.26 kB gzip**, below the ~200 kB target; lecturer and admin are separate lazy chunks (**5.83 kB** and **1.05 kB gzip**). |
-| API contract, generated types and centralized errors | Partial | Session creation, code polling, session ending, lecturer offerings/venues, student live-class selection, and `GET /me` use generated types from the synced backend contract. The generic catalogue schema does not specify course code/title properties, so the UI safely reads optional code/title values when the API provides them. The profile contract exposes department IDs rather than department names. Forgot/reset-password and standalone verification endpoints are not in the contract and explicitly report unsupported in real mode. Real-backend compatibility is unverified. |
+| API contract, generated types and centralized errors | Partial | Session lifecycle, lecturer offerings/venues, student flows, role-based identity, staff imports, signup review, password reset, venue/calendar administration, and role assignment use generated operation/request types from the synced contract. Generic signup/catalogue schemas omit several display fields and are handled defensively. The email outbox worker is backend-only. Real-backend compatibility is unverified. |
 | CI and documentation coverage | Done | CI and baseline docs exist; this inventory calls out incomplete product screens. |
 
 ## Validation and latest measured output
@@ -161,6 +162,40 @@ generic “Registration is closed for this offering” explanation.
 | `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.04 kB / 115.54 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
 
 Real-backend behavior and browser viewport checks were not performed.
+
+## Newly published administration and password-reset endpoints
+
+Ran `pnpm sync:api` against the current sibling backend contract. The copy
+completed, but `openapi-typescript` could not parse duplicate `500` response
+keys at API-spec lines 652 and 1083. After removing the duplicate keys in this
+repository's copy, generation exposed malformed nested response mappings at
+lines 1471 and 1513; those response blocks were rewritten as block YAML. The
+backend repository was not changed. `pnpm gen:api` then passed and regenerated
+`src/api/schema.d.ts`; the final generated-type check reported no mismatches.
+
+Added staff CSV preview and atomic-commit UI, scoped signup-request review,
+forgot/reset password calls, venue administration, academic session and
+semester management, role assignment, and the updated `/me/offerings`
+session/timetable fields. New mock handlers cover those API operations and
+reset codes; mock CSV commit revalidates rows and fails atomically. The mock
+reset code is development-only. The backend's reset-attempt threshold is not
+published, so the UI surfaces server errors/rate limits rather than assuming a
+limit. The email outbox retry worker is backend-only and has no frontend
+endpoint. API assumptions document incomplete signup/catalogue response
+schemas, unspecified venue mutation responses, and missing role-lookup
+operations.
+
+| Command | Result |
+|---|---|
+| `pnpm sync:api` | Copy completed; generation failed because the upstream OpenAPI contains duplicate `500` response keys (first reported at line 652). |
+| `pnpm gen:api` | Passed after removing the duplicate keys and formatting malformed nested response blocks in the local copy. |
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors after regenerating types. |
+| `pnpm test --maxWorkers=1` | Passed; 12 test files and 57 tests passed, including CSV preview/atomic failure, one-time password reset, venue persistence, academic-session persistence, and existing app flows. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **387.28 kB / 115.84 kB gzip**, **25.24 kB / 7.39 kB gzip**, and **19.74 kB / 4.89 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+
+No server was started. Real-backend behavior and visual checks at 375, 768,
+and 1280 pixels remain unverified.
 
 ## Lecturer navigation reset and API contract refresh
 

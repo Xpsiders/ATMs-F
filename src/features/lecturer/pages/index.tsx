@@ -145,15 +145,31 @@ export function Teaching({ user }: { user: CurrentUser }) {
             <div className="teaching-row" key={offering.id}>
               <div>
                 <b>{getOfferingLabel(offering)}</b>
-                <span>Assigned to your lecturer account</span>
+                <span className={`status-chip ${offering.session_open ? "verified" : "absent"}`}>
+                  <i />
+                  {offering.session_open ? "Session live" : "No live session"}
+                </span>
+                {offering.next_timetable_slot && (
+                  <span>
+                    Next class: {offering.next_timetable_slot.venue_name ?? "Venue not specified"} ·{" "}
+                    {offering.next_timetable_slot.next_at ??
+                      `${offering.next_timetable_slot.starts_at}–${offering.next_timetable_slot.ends_at}`}
+                  </span>
+                )}
               </div>
-              <Link
-                to={`/lecturer/start?offeringId=${encodeURIComponent(offering.id)}`}
-                className="text-button"
-                aria-label={`Start ${getOfferingLabel(offering)} session`}
-              >
-                Start session <Icon name="arrow" size={15} />
-              </Link>
+              {offering.session_open ? (
+                <span className="text-button" aria-label="Session already live">
+                  Session already live
+                </span>
+              ) : (
+                <Link
+                  to={`/lecturer/start?offeringId=${encodeURIComponent(offering.id)}`}
+                  className="text-button"
+                  aria-label={`Start ${getOfferingLabel(offering)} session`}
+                >
+                  Start session <Icon name="arrow" size={15} />
+                </Link>
+              )}
             </div>
           ))
         ) : (

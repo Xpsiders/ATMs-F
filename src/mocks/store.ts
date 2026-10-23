@@ -1,6 +1,10 @@
 import type { components } from "@/api/schema";
 import type {
   LiveClassesResponse,
+  AcademicSessionsResponse,
+  CreateAcademicSessionRequest,
+  CreateSemesterRequest,
+  CreateVenueRequest,
   OfferingsResponse,
   PendingRegistrationsResponse,
   RegistrationResponse,
@@ -10,6 +14,10 @@ import type {
   StudentCoursesResponse,
   StudentTimetableResponse,
   StartSessionRequest,
+  SemestersResponse,
+  UpdateAcademicSessionRequest,
+  UpdateSemesterRequest,
+  UpdateVenueRequest,
   VenueListResponse,
 } from "@/api/contracts";
 
@@ -96,6 +104,7 @@ export const DEMO_VENUES: VenueListResponse["items"] = [
     latitude: 7.5172,
     longitude: 4.5226,
     radius_meters: 60,
+    active: true,
   },
   {
     id: "5f8b1042-7c3d-4b6e-a9f1-2d8c6e0a3b57",
@@ -103,8 +112,13 @@ export const DEMO_VENUES: VenueListResponse["items"] = [
     latitude: 7.5175,
     longitude: 4.5229,
     radius_meters: 60,
+    active: true,
   },
 ];
+const INITIAL_DEMO_VENUES = structuredClone(DEMO_VENUES);
+let demoVenues = structuredClone(INITIAL_DEMO_VENUES);
+let demoAcademicSessions: components["schemas"]["CatalogueItem"][] = [];
+let demoSemesters: components["schemas"]["CatalogueItem"][] = [];
 
 const SEEDED_SESSION_ID = globalThis.crypto.randomUUID();
 
@@ -214,14 +228,14 @@ const INITIAL_DEMO_STATE: DemoState = {
       id: SEEDED_SESSION_ID,
       offeringId: "4c39d74e-7b7c-4cb0-8bd5-c8274905e3ce",
       offeringCode: "ENG 301",
-      venueId: DEMO_VENUES[0]!.id,
-      venue: DEMO_VENUES[0]!.name,
+      venueId: demoVenues[0]!.id,
+      venue: demoVenues[0]!.name,
       date: "2026-10-20",
       startedAt: "2026-10-20T08:02:00Z",
       lateAfterMin: 15,
-      latitude: DEMO_VENUES[0]!.latitude,
-      longitude: DEMO_VENUES[0]!.longitude,
-      radiusMeters: DEMO_VENUES[0]!.radius_meters,
+      latitude: demoVenues[0]!.latitude,
+      longitude: demoVenues[0]!.longitude,
+      radiusMeters: demoVenues[0]!.radius_meters,
       state: "live",
       code: "381204",
       rotating: true,
@@ -317,6 +331,9 @@ export function subscribeDemoState(listener: () => void): () => void {
 
 export function resetDemoData(): void {
   demoState = structuredClone(INITIAL_DEMO_STATE);
+  demoVenues = structuredClone(INITIAL_DEMO_VENUES);
+  demoAcademicSessions = [];
+  demoSemesters = [];
   listeners.forEach((listener) => listener());
 }
 
@@ -359,11 +376,128 @@ export function listDemoDepartments(): components["schemas"]["PagedCatalogueItem
 
 export function listDemoVenues(): VenueListResponse {
   return {
-    items: structuredClone(DEMO_VENUES),
-    limit: DEMO_VENUES.length,
+    items: structuredClone(demoVenues),
+    limit: demoVenues.length,
     offset: 0,
-    total: DEMO_VENUES.length,
+    total: demoVenues.length,
   };
+}
+
+export function createDemoVenue(
+  request: CreateVenueRequest,
+): VenueListResponse["items"][number] {
+  const venue: VenueListResponse["items"][number] = {
+    id: globalThis.crypto.randomUUID(),
+    ...request,
+    active: true,
+  };
+  demoVenues = [...demoVenues, venue];
+  return venue;
+}
+
+export function updateDemoVenue(
+  id: string,
+  request: UpdateVenueRequest,
+): VenueListResponse["items"][number] | null {
+  const current = demoVenues.find((venue) => venue.id === id);
+  if (!current) return null;
+  const updated = { ...current, ...request };
+  demoVenues = demoVenues.map((venue) => (venue.id === id ? updated : venue));
+  return updated;
+}
+
+export function deactivateDemoVenue(id: string): boolean {
+  const current = demoVenues.find((venue) => venue.id === id);
+  if (!current) return false;
+  demoVenues = demoVenues.map((venue) =>
+    venue.id === id ? { ...venue, active: false } : venue,
+  );
+  return true;
+}
+
+export function listDemoAcademicSessions(): AcademicSessionsResponse {
+  return {
+    items: structuredClone(demoAcademicSessions),
+    limit: 200,
+    offset: 0,
+    has_more: false,
+  };
+}
+
+export function createDemoAcademicSession(
+  request: CreateAcademicSessionRequest,
+): components["schemas"]["CatalogueItem"] {
+  const session: components["schemas"]["CatalogueItem"] = {
+    id: globalThis.crypto.randomUUID(),
+    ...request,
+  };
+  demoAcademicSessions = [
+    ...(request.current
+      ? demoAcademicSessions.map((item) => ({ ...item, current: false }))
+      : demoAcademicSessions),
+    session,
+  ];
+  return session;
+}
+
+export function updateDemoAcademicSession(
+  id: string,
+  request: UpdateAcademicSessionRequest,
+): components["schemas"]["CatalogueItem"] | null {
+  const current = demoAcademicSessions.find((item) => item.id === id);
+  if (!current) return null;
+  demoAcademicSessions = demoAcademicSessions.map((item) => ({
+    ...item,
+    ...(request.current ? { current: item.id === id } : {}),
+    ...(item.id === id ? request : {}),
+  }));
+  return demoAcademicSessions.find((item) => item.id === id) ?? null;
+}
+
+export function deleteDemoAcademicSession(id: string): boolean {
+  if (!demoAcademicSessions.some((item) => item.id === id)) return false;
+  demoAcademicSessions = demoAcademicSessions.filter((item) => item.id !== id);
+  demoSemesters = demoSemesters.filter(
+    (item) => item.academic_session_id !== id,
+  );
+  return true;
+}
+
+export function listDemoSemesters(): SemestersResponse {
+  return {
+    items: structuredClone(demoSemesters),
+    limit: 200,
+    offset: 0,
+    has_more: false,
+  };
+}
+
+export function createDemoSemester(
+  request: CreateSemesterRequest,
+): components["schemas"]["CatalogueItem"] {
+  const semester: components["schemas"]["CatalogueItem"] = {
+    id: globalThis.crypto.randomUUID(),
+    ...request,
+  };
+  demoSemesters = [...demoSemesters, semester];
+  return semester;
+}
+
+export function updateDemoSemester(
+  id: string,
+  request: UpdateSemesterRequest,
+): components["schemas"]["CatalogueItem"] | null {
+  const current = demoSemesters.find((item) => item.id === id);
+  if (!current) return null;
+  const updated = { ...current, ...request };
+  demoSemesters = demoSemesters.map((item) => (item.id === id ? updated : item));
+  return updated;
+}
+
+export function deleteDemoSemester(id: string): boolean {
+  if (!demoSemesters.some((item) => item.id === id)) return false;
+  demoSemesters = demoSemesters.filter((item) => item.id !== id);
+  return true;
 }
 
 export function listDemoLiveClasses(
@@ -376,7 +510,7 @@ export function listDemoLiveClasses(
         const offering = demoState.offerings.find(
           (candidate) => candidate.id === session.offeringId,
         );
-        const venue = DEMO_VENUES.find(
+        const venue = demoVenues.find(
           (candidate) => candidate.id === session.venueId,
         );
         if (!offering || !venue) return [];
@@ -444,8 +578,8 @@ export function listDemoStudentTimetable(): StudentTimetableResponse {
       offering_id: offering.id,
       course_code: offering.code,
       course_title: offering.title,
-      venue_id: DEMO_VENUES[index % DEMO_VENUES.length]!.id,
-      venue_name: DEMO_VENUES[index % DEMO_VENUES.length]!.name,
+      venue_id: demoVenues[index % demoVenues.length]!.id,
+      venue_name: demoVenues[index % demoVenues.length]!.name,
       starts_at: index === 0 ? "09:00:00" : "11:00:00",
       ends_at: index === 0 ? "10:30:00" : "12:30:00",
       live_now:
@@ -639,7 +773,7 @@ export function createDemoSession(
   const offering = demoState.offerings.find(
     (candidate) => candidate.id === request.offering_id,
   );
-  const venue = DEMO_VENUES.find(
+  const venue = demoVenues.find(
     (candidate) => candidate.id === request.venue_id,
   );
   if (!offering || !venue) return null;
