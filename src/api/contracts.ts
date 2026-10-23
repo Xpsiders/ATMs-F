@@ -88,6 +88,12 @@ export type StartSessionResponse =
   operations["startSession"]["responses"][201]["content"]["application/json"];
 export type EndSessionResponse =
   operations["endSession"]["responses"][200]["content"]["application/json"];
+export type LiveSessionResponse =
+  operations["getLiveSessionRoster"]["responses"][200]["content"]["application/json"];
+export type SessionReportResponse =
+  operations["getSessionReport"]["responses"][200]["content"]["application/json"];
+export type SessionReportItem =
+  SessionReportResponse["items"][number];
 export type LoginResponse =
   operations["login"]["responses"][200]["content"]["application/json"];
 export type CurrentUser =

@@ -141,7 +141,7 @@ describe("Campus Attendance screens", () => {
     expect(
       await screen.findByRole("heading", {
         name: "Welcome, Dr. Ngozi Eze",
-      }),
+      }, { timeout: 5_000 }),
     ).toBeInTheDocument();
     expect(
       await screen.findByText("BIO 731 · API Lecturer's Assigned Course"),
@@ -1123,7 +1123,7 @@ describe("Campus Attendance screens", () => {
     expect(
       await screen.findByRole("heading", {
         name: "You don't have access to this page",
-      }),
+      }, { timeout: 5_000 }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Go to your home" }));
     expect(

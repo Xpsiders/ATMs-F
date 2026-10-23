@@ -32,14 +32,14 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student | Student profile / privacy details | Partial | Profile name, email, role, department ID, and level display from `GET /me`; profile editing is not supported by the current contract. |
 | Lecturer | Offerings / teaching list | Done | Displays the signed-in lecturer's name and offerings returned by authenticated `/me/offerings`, including `session_open` and nullable `next_timetable_slot`; loading, error/retry, empty states, and per-offering start links that select the matching offering are implemented. Real-backend assignment scoping remains unverified. |
 | Lecturer | Start/create attendance session | Done | Loads `/me/offerings` and `/venues`, shows course code/title, and submits exactly the selected IDs plus boolean `rotating_code` and numeric `late_after_min` as JSON. Field-level API errors render beside the form. Returned session ID drives code polling and ending; mock integration tests assert exact payload and IDs. |
-| Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for `GET /sessions/{id}/code` polling and `POST /sessions/{id}/end`; errors display the API code/message. The roster and aggregate counts are still seeded. |
+| Lecturer | Live session screen / rotating code | Partial | Uses the selected/created session ID for code polling, ending, and live attendance. Counts and roster are polled from `/sessions/{id}/live`; offering and venue labels come from `/me/offerings`, `/venues`, and the returned session. API scanner coverage is not included in the live endpoint. |
 | Lecturer | Projector mode | Done | Fullscreen request, scalable code and theme toggle are available; real projector behavior is unverified. |
 | Lecturer | Board mode / power-cut fallback | Done | Portrait-friendly code/count display, fullscreen/Escape handling and feature-detected Wake Lock are implemented. |
 | Lecturer | Fixed-code confirmation and scanner coverage | Done | Confirmed fixed-code action updates shared session state; scanner scenario updates shared scanner state and warnings appear. |
 | Lecturer | Live roster | Done | Roster reads shared student attendance records and links to the report. |
-| Lecturer | Session report / report table and filters | Partial | Report route carries the selected session ID; table rows and overrides work from shared demo data, and filters work. Aggregate statistic cards remain seeded and report retrieval/CSV export are not wired to a real report response. |
+| Lecturer | Session report / report table and filters | Partial | Real mode loads every page from `/sessions/{id}/report`; rows, classification totals, scanner coverage, filtering, and overrides use API data. Mock mode continues to use fixtures. The schema omits web/scan timestamps and department names, so the report shows unavailable timestamps and department IDs. |
 | Lecturer | Single and bulk attendance override | Done | Dialog validates “other” explanation, shows per-row mock results, updates shared attendance and records mock audit entries. |
-| Lecturer | Print attendance sheet | Done | Print-friendly roster reads all seeded students and invokes browser print; actual paper output is unverified. |
+| Lecturer | Print attendance sheet and PDF | Done | The printable roster uses `/sessions/{id}/roster-sheet` in real mode and offers the server-generated PDF at `?format=pdf`; mock mode uses the fixture roster and browser print. |
 | Lecturer | Lecturer enrolment | Placeholder | No lecturer enrolment flow is implemented. |
 | Admin | Import students / CSV preview and commit | Placeholder | Student CSV import is not present. |
 | Admin | Import staff / CSV preview and atomic commit | Done | Upload, size/type validation, server preview, row-error display, and commit gating are wired to `/imports/staff/preview` and `/imports/staff`. The API revalidates and commits atomically; mock preview/commit validates the documented headers and returns 422 for invalid rows. |
@@ -230,3 +230,34 @@ upstream.
 | `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **385.11 kB / 115.54 kB gzip**, **24.79 kB / 7.23 kB gzip**, and **2.47 kB / 1.05 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
 
 No servers were started. The real backend was not retested from a browser.
+
+## Lecturer live attendance and session PDF reports
+
+Ran `pnpm sync:api`; the latest contract copy completed but type generation
+again stopped on duplicate `500` response keys in the sibling backend YAML.
+Removed the duplicate keys and corrected malformed nested response mappings in
+the local `api/openapi.yaml`, then `pnpm gen:api` passed. No backend files were
+modified. Generated types confirm `/sessions/{id}/live`, paginated JSON
+`/sessions/{id}/report`, and `application/pdf` responses on both report and
+roster-sheet endpoints.
+
+Real-mode live sessions now poll all roster pages and API counts from
+`/sessions/{id}/live`, and get offering/venue labels from the API. Real-mode
+reports load all report pages and derive counts, filters, statuses, scanner
+coverage and override IDs from those results. Added server-generated PDF
+downloads for the complete session report and roster sheet; mock mode keeps its
+fixtures and browser-print fallback. Real mode no longer subscribes to the demo
+store for these lecturer screens. The API report schema omits timestamp and
+department-name values, so the UI does not fabricate those fields.
+
+| Command | Result |
+|---|---|
+| `pnpm sync:api` | Copy completed; generation failed on duplicate `500` response keys in the backend spec. |
+| `pnpm gen:api` | Passed after local OpenAPI syntax corrections. |
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and all 61 tests passed, including the lecturer API-backed live/report and PDF tests. |
+| `pnpm build` | Passed; Vite transformed 309 modules. JavaScript chunks were **387.36 kB / 115.87 kB gzip**, **29.96 kB / 8.48 kB gzip**, and **19.74 kB / 4.89 kB gzip**; CSS was **61.57 kB / 13.15 kB gzip**. |
+
+No servers were started; live-backend responses and generated PDF appearance
+were not browser-verified.

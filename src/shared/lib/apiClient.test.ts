@@ -101,7 +101,37 @@ describe("API client", () => {
       ),
     );
     await expect(
-      apiRequest("/check-ins", { method: "POST" }, "http://api.test"),
+      apiRequest("/checkins", { method: "POST" }, "http://api.test"),
     ).rejects.toMatchObject({ code: "rate_limited", retryAfter: 17 });
+  });
+
+  it("returns CSV responses as blobs", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("student,attendance\nAmara,present\n", {
+        headers: { "Content-Type": "text/csv; charset=utf-8" },
+      }),
+    );
+    const blob = await apiRequest<Blob>(
+      "/sessions/session-id/report?format=csv",
+      {},
+      "http://api.test",
+    );
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.size).toBe("student,attendance\nAmara,present\n".length);
+  });
+
+  it("returns PDF responses as blobs and requests PDF media type", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("%PDF-1.4", {
+        headers: { "Content-Type": "application/pdf" },
+      }),
+    );
+    const blob = await apiRequest<Blob>(
+      "/sessions/session-id/report?format=pdf",
+      { headers: { Accept: "application/pdf" } },
+      "http://api.test",
+    );
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/pdf");
   });
 });

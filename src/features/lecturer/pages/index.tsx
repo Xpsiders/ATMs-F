@@ -10,6 +10,7 @@ import type {
   BulkOverrideResponse,
   CurrentUser,
   EndSessionResponse,
+  LiveSessionResponse,
   OfferingsResponse,
   RosterPage,
   RosterSheetRow,
@@ -17,6 +18,7 @@ import type {
   StartSessionResponse,
   SessionPatchRequest,
   SessionPatchResponse,
+  SessionReportResponse,
   VenueListResponse,
 } from "@/api/contracts";
 import {
@@ -32,6 +34,90 @@ import {
 } from "@/mocks/store";
 import { isMockMode } from "@/mocks/auth";
 import { useDemoState } from "@/mocks/useDemoState";
+
+type ReportDisplayRow = {
+  id: string;
+  name: string;
+  matric: string;
+  department: string;
+  web: string;
+  scan: string;
+  status: string;
+  label: string;
+  flags: string[];
+};
+
+function getClassificationLabel(
+  classification: LiveSessionResponse["items"][number]["classification"],
+) {
+  const labels: Record<
+    LiveSessionResponse["items"][number]["classification"],
+    string
+  > = {
+    verified: "Verified",
+    suspected_proxy: "Suspected proxy",
+    present_no_web_log: "Scan only",
+    web_only_unverified: "Web only",
+    absent: "Absent",
+    excused: "Excused",
+  };
+  return labels[classification];
+}
+
+function getReportStatus(
+  classification: SessionReportResponse["items"][number]["classification"],
+  status: string,
+) {
+  if (status.toLowerCase() === "late") return "Late";
+  return getClassificationLabel(classification);
+}
+
+function getReportStatusClass(
+  classification: SessionReportResponse["items"][number]["classification"],
+  status: string,
+) {
+  if (status.toLowerCase() === "late") return "late";
+  if (classification === "present_no_web_log") return "scan_only";
+  return classification;
+}
+
+async function getAllLiveSessionRows(
+  sessionId: string,
+): Promise<LiveSessionResponse> {
+  let offset = 0;
+  let firstPage: LiveSessionResponse | null = null;
+  const items: LiveSessionResponse["items"] = [];
+  while (true) {
+    const page = await apiRequest<LiveSessionResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/live?limit=200&offset=${offset}`,
+    );
+    firstPage ??= page;
+    items.push(...page.items);
+    if (!page.has_more || page.items.length === 0) break;
+    offset += page.items.length;
+  }
+  if (!firstPage) throw new Error("The API returned no live session roster.");
+  return { ...firstPage, items };
+}
+
+async function getAllSessionReportRows(
+  sessionId: string,
+): Promise<SessionReportResponse> {
+  let offset = 0;
+  let firstPage: SessionReportResponse | null = null;
+  const items: SessionReportResponse["items"] = [];
+  while (true) {
+    const page = await apiRequest<SessionReportResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/report?limit=200&offset=${offset}`,
+    );
+    firstPage ??= page;
+    items.push(...page.items);
+    if (!page.has_more || page.items.length === 0) break;
+    offset += page.items.length;
+  }
+  if (!firstPage) throw new Error("The API returned no session report.");
+  return { ...firstPage, items };
+}
 
 const ATTENDANCE_STATUS_LABELS: Record<DemoAttendance["status"], string> = {
   verified: "Verified",
@@ -369,8 +455,14 @@ export function StartSession() {
 
 export function LiveSession() {
   const mock = isMockMode();
-  const demoState = useDemoState();
+  const demoState = useDemoState(mock);
   const [searchParams] = useSearchParams();
+  const [reloadLiveKey, setReloadLiveKey] = useState(0);
+  const [liveData, setLiveData] = useState<LiveSessionResponse | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState("");
+  const [offerings, setOfferings] = useState<OfferingsResponse["items"]>([]);
+  const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
   const requestedSessionId = searchParams.get("sessionId");
   const sessionId =
     requestedSessionId ??
@@ -403,6 +495,7 @@ export function LiveSession() {
     code,
     seconds,
     error: codeError,
+    session: apiSession,
   } = useServerCode(
     sessionId,
     Boolean(
@@ -412,8 +505,70 @@ export function LiveSession() {
         (!mock || demoSession?.rotating !== false),
     ),
   );
+  useEffect(() => {
+    if (mock || !sessionId || ended) return;
+    let active = true;
+    let inFlight = false;
+    setLiveData(null);
+    setLiveError("");
+    const load = async (initial = false) => {
+      if (inFlight) return;
+      inFlight = true;
+      if (initial) setLiveLoading(true);
+      try {
+        const result = await getAllLiveSessionRows(sessionId);
+        if (active) {
+          setLiveData(result);
+          setLiveError("");
+        }
+      } catch (caught) {
+        if (active) setLiveError(formatApiError(caught));
+      } finally {
+        inFlight = false;
+        if (active) setLiveLoading(false);
+      }
+    };
+    void load(true);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void load();
+    }, 5_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ended, mock, reloadLiveKey, sessionId]);
+  useEffect(() => {
+    if (mock) return;
+    let active = true;
+    void Promise.all([
+      apiRequest<OfferingsResponse>("/me/offerings"),
+      apiRequest<VenueListResponse>("/venues?limit=200&offset=0"),
+    ])
+      .then(([offeringResponse, venueResponse]) => {
+        if (!active) return;
+        setOfferings(offeringResponse.items);
+        setVenues(venueResponse.items);
+      })
+      .catch((caught: unknown) => {
+        if (active) setNotice(formatApiError(caught));
+      });
+    return () => {
+      active = false;
+    };
+  }, [mock]);
+  const apiOffering = offerings.find(
+    (offering) => offering.id === apiSession?.offering_id,
+  );
+  const apiVenue = venues.find((venue) => venue.id === apiSession?.venue_id);
   const activeCode = fixedCode ?? code;
-  const rosterRows = demoState.attendance.flatMap((record) => {
+  const demoRosterRows = demoState.attendance
+    .filter((record) => record.sessionId === sessionId)
+    .flatMap((record) => {
     const student = demoState.students.find(
       (candidate) => candidate.id === record.studentId,
     );
@@ -428,6 +583,43 @@ export function LiveSession() {
       },
     ];
   });
+  const rosterRows = mock
+    ? demoRosterRows
+    : (liveData?.items ?? []).map((row) => ({
+      name: row.display_name,
+      matric: row.matric_no,
+      status: getReportStatusClass(row.classification, row.status),
+      label: getReportStatus(row.classification, row.status),
+        flags:
+          row.classification === "verified" ||
+          row.classification === "absent" ||
+          row.classification === "excused"
+            ? []
+            : [getClassificationLabel(row.classification)],
+      }));
+  const webCheckins = mock
+    ? demoRosterRows.length
+    : (liveData?.counts.web_checkins ?? 0);
+  const fingerprintScans = mock
+    ? demoState.attendance.filter(
+        (record) => record.sessionId === sessionId && record.scanTime !== "—",
+      ).length
+    : (liveData?.counts.scans ?? 0);
+  const registeredStudents = mock
+    ? demoState.students.length
+    : (liveData?.counts.registered ?? 0);
+  const offeringTitle = mock
+    ? demoOffering?.title
+    : apiOffering
+      ? getOfferingLabel(apiOffering)
+      : undefined;
+  const offeringCode = mock ? demoOffering?.code : undefined;
+  const venueName = mock ? demoSession?.venue : apiVenue?.name;
+  const scannerStatusLabel = mock
+    ? scannerOffline
+      ? "Scanner offline"
+      : "All scanners online"
+    : "Scanner status unavailable";
   useEffect(() => {
     if (!boardMode) return;
     let active = true;
@@ -529,8 +721,8 @@ export function LiveSession() {
         </button>{" "}
         <div className="board-content">
           <span className="board-kicker">CAMPUSCHECK · LIVE CLASS CODE</span>
-          <h1>{demoOffering?.title ?? "Live attendance session"}</h1>
-          <p className="board-venue">{demoSession?.venue ?? "Session venue"}</p>
+          <h1>{offeringTitle ?? "Live attendance session"}</h1>
+          <p className="board-venue">{venueName ?? "Session venue"}</p>
           <strong className="board-code">
             {`${activeCode.slice(0, 3)} ${activeCode.slice(3)}`}
           </strong>
@@ -538,13 +730,13 @@ export function LiveSession() {
             <span className="board-countdown">{fixedCode ? "—" : seconds}</span>
             <div className="board-stats">
               <span>
-                <strong>142</strong>Web check-ins
+                <strong>{webCheckins}</strong>Web check-ins
               </span>
               <span>
-                <strong>12</strong>Fingerprint scans
+                <strong>{fingerprintScans}</strong>Fingerprint scans
               </span>
               <span>
-                <strong>184</strong>Registered students
+                <strong>{registeredStudents}</strong>Registered students
               </span>
             </div>
           </div>
@@ -571,9 +763,9 @@ export function LiveSession() {
       className={`page-stack ${projector ? `projector-mode ${boardTheme}` : ""}`}
     >
       <PageHeading
-        eyebrow={`LIVE SESSION · ${demoOffering?.code ?? "ATTENDANCE"}`}
-        title={demoOffering?.title ?? "Live attendance session"}
-        subtitle={demoSession?.venue ?? "Session venue"}
+        eyebrow={`LIVE SESSION · ${offeringCode ?? "ATTENDANCE"}`}
+        title={offeringTitle ?? "Live attendance session"}
+        subtitle={venueName ?? `Session ${sessionId}`}
         action={
           <div className="live-actions">
             <button
@@ -604,6 +796,17 @@ export function LiveSession() {
       {notice && (
         <div className="form-error" role="alert">
           {notice}
+        </div>
+      )}
+      {liveError && (
+        <div className="form-error" role="alert">
+          {liveError}{" "}
+          <button
+            className="text-button"
+            onClick={() => setReloadLiveKey((key) => key + 1)}
+          >
+            Retry
+          </button>
         </div>
       )}
       {fixedCode && (
@@ -663,15 +866,15 @@ export function LiveSession() {
         )}
         <div className="live-stat-row">
           <div>
-            <strong>142</strong>
+            <strong>{webCheckins}</strong>
             <span>Web check-ins</span>
           </div>
           <div>
-            <strong>12</strong>
+            <strong>{fingerprintScans}</strong>
             <span>Fingerprint scans</span>
           </div>
           <div>
-            <strong>184</strong>
+            <strong>{registeredStudents}</strong>
             <span>Students registered</span>
           </div>
         </div>
@@ -683,18 +886,18 @@ export function LiveSession() {
             <p>Scanner status reported by the API</p>
           </div>
           <span
-            className={`scanner-pill ${scannerOffline ? "offline" : "online"}`}
+            className={`scanner-pill ${scannerOffline ? "offline" : mock ? "online" : ""}`}
           >
             <i />
-            {scannerOffline ? "Scanner offline" : "All scanners online"}
+            {scannerStatusLabel}
           </span>
         </div>
         <div className="scanner-coverage">
           <span
-            className={`scanner-pill ${scannerOffline ? "offline" : "online"}`}
+            className={`scanner-pill ${scannerOffline ? "offline" : mock ? "online" : ""}`}
           >
             <i />
-            Lecture Theatre 2 · {scannerOffline ? "Offline" : "Online"}
+            {venueName ?? "Session venue"} · {scannerStatusLabel}
           </span>
           {isMockMode() && (
             <select
@@ -737,7 +940,11 @@ export function LiveSession() {
             View full roster <Icon name="arrow" size={15} />
           </Link>
         </div>
-        {rosterRows.map((row) => (
+        {liveLoading && !rosterRows.length ? (
+          <p role="status">Loading session attendance…</p>
+        ) : !rosterRows.length ? (
+          <p className="empty-state">No attendance records are available for this session yet.</p>
+        ) : rosterRows.map((row) => (
           <div className="roster-row" key={row.matric}>
             <span className="roster-avatar">{formatInitials(row.name)}</span>
             <div className="roster-person">
@@ -757,7 +964,8 @@ export function LiveSession() {
 }
 
 export function Report() {
-  const demoState = useDemoState();
+  const mock = isMockMode();
+  const demoState = useDemoState(mock);
   const [searchParams] = useSearchParams();
   const [filter, setFilter] = useState("All statuses");
   const [department, setDepartment] = useState("All departments");
@@ -771,19 +979,51 @@ export function Report() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [localScannerOffline, setLocalScannerOffline] = useState(false);
   const [message, setMessage] = useState("");
-  const mock = isMockMode();
+  const [reportData, setReportData] = useState<SessionReportResponse | null>(
+    null,
+  );
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reloadReportKey, setReloadReportKey] = useState(0);
   const sessionId =
     searchParams.get("sessionId") ??
     (mock
       ? (demoState.sessions.find((session) => session.state === "live")?.id ??
         "")
       : "");
+  useEffect(() => {
+    if (mock) return;
+    let active = true;
+    setReportData(null);
+    setReportLoading(true);
+    setReportError("");
+    if (!sessionId) {
+      setReportError("Open a session report from a session.");
+      setReportLoading(false);
+      return;
+    }
+    void getAllSessionReportRows(sessionId)
+      .then((result) => {
+        if (active) setReportData(result);
+      })
+      .catch((caught: unknown) => {
+        if (active) setReportError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setReportLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mock, reloadReportKey, sessionId]);
   const scannerOffline = mock
     ? demoState.scanners.some((scanner) => scanner.status === "offline")
-    : localScannerOffline;
-  const rows = demoState.attendance.flatMap((record) => {
+    : reportData?.scanner_coverage.state === "none" ||
+      reportData?.scanner_coverage.state === "partial";
+  const demoRows = demoState.attendance
+    .filter((record) => record.sessionId === sessionId)
+    .flatMap((record) => {
     const student = demoState.students.find(
       (candidate) => candidate.id === record.studentId,
     );
@@ -802,27 +1042,58 @@ export function Report() {
       },
     ];
   });
+  const rows: ReportDisplayRow[] = mock
+    ? demoRows
+    : (reportData?.items ?? []).map((item) => ({
+        id: item.student_record_id,
+        name: item.display_name,
+        matric: item.matric_no,
+        department: item.department_id,
+        web: "—",
+        scan: "—",
+        status: getReportStatusClass(item.classification, item.status),
+        label: getReportStatus(item.classification, item.status),
+        flags: item.reason ? [item.reason] : [],
+      }));
+  const registeredCount = rows.length;
+  const verifiedCount = rows.filter((row) => row.label === "Verified").length;
+  const suspectedCount = rows.filter(
+    (row) => row.label === "Suspected proxy",
+  ).length;
+  const scanOnlyCount = rows.filter((row) => row.label === "Scan only").length;
+  const absentCount = rows.filter((row) => row.label === "Absent").length;
+  const needsReviewCount = rows.filter(
+    (row) =>
+      row.label === "Suspected proxy" ||
+      row.label === "Web only" ||
+      row.label === "Scan only",
+  ).length;
+  const departments = [...new Set(rows.map((row) => row.department))];
   const filteredRows = rows.filter(
     (row) =>
       (filter === "All statuses" || row.label === filter) &&
       (department === "All departments" || row.department === department),
   );
-  async function exportReport() {
+  async function exportReport(format: "csv" | "pdf") {
     setExporting(true);
     setMessage("");
     try {
       if (!sessionId) throw new Error("Open a session report from a session.");
-      if (!mock)
+      if (!mock) {
         await downloadApiFile(
-          `/sessions/${encodeURIComponent(sessionId)}/report?format=csv`,
-          "ENG-301-session-report.csv",
+          `/sessions/${encodeURIComponent(sessionId)}/report?format=${format}`,
+          `session-${sessionId}-report.${format}`,
         );
-      else
+      } else if (format === "pdf") {
+        window.print();
+        setMessage("Use the print dialog to save this report as a PDF.");
+      } else {
         setMessage(
           "Report CSV is ready to download when the API is connected.",
         );
-    } catch {
-      setMessage("The report couldn't be downloaded. Please try again.");
+      }
+    } catch (caught) {
+      setMessage(formatApiError(caught));
     } finally {
       setExporting(false);
     }
@@ -872,12 +1143,13 @@ export function Report() {
           payload.status === "present" ? "verified" : payload.status,
           reasonType === "other" ? reason : reasonType,
         );
+      else setReloadReportKey((key) => key + 1);
       setSelected("");
       setSelectedIds([]);
       setBulkOpen(false);
       setReason("");
-    } catch {
-      setMessage("The attendance changes were not saved. Please try again.");
+    } catch (caught) {
+      setMessage(formatApiError(caught));
     } finally {
       setSaving(false);
     }
@@ -885,9 +1157,9 @@ export function Report() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow="SESSION REPORT · ENG 301"
+        eyebrow="SESSION REPORT"
         title="Session report"
-        subtitle="Engineering Mathematics III · Monday, 17 February 2025 · Lecture Theatre 2"
+        subtitle={sessionId ? `Session ${sessionId}` : "No session selected"}
         action={
           <div className="report-actions">
             <Link
@@ -899,9 +1171,17 @@ export function Report() {
             <button
               className="button secondary-button"
               disabled={exporting}
-              onClick={() => void exportReport()}
+              onClick={() => void exportReport("csv")}
             >
               {exporting ? "Preparing…" : "Export CSV"}{" "}
+              <Icon name="arrow" size={15} />
+            </button>
+            <button
+              className="button secondary-button"
+              disabled={exporting || !sessionId}
+              onClick={() => void exportReport("pdf")}
+            >
+              {exporting ? "Preparing…" : "Export PDF"}{" "}
               <Icon name="arrow" size={15} />
             </button>
           </div>
@@ -912,22 +1192,32 @@ export function Report() {
           {message}
         </div>
       )}
+      {reportError && (
+        <div className="form-error" role="alert">
+          {reportError}{" "}
+          <button
+            className="text-button"
+            onClick={() => setReloadReportKey((key) => key + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       <div className="report-summary">
         <span className="summary-kicker">SESSION RESULTS</span>
         <b>
-          184 <small>registered students</small>
+          {registeredCount} <small>students on report</small>
         </b>
         <span>
-          142 web check-ins <i>·</i> 12 fingerprint scans <i>·</i> 30 need
-          review
+          {verifiedCount} verified <i>·</i> {needsReviewCount} need review
         </span>
       </div>
       <div className="report-stat-grid">
         {[
-          ["142", "Verified", "Web and fingerprint confirmed", "verified"],
-          ["9", "Suspected proxy", "Flagged for lecturer review", "suspected"],
-          ["12", "Scan only", "Fingerprint scan, no web log", "info"],
-          ["21", "Absent", "No attendance recorded", "absent"],
+          [String(verifiedCount), "Verified", "Verified attendance", "verified"],
+          [String(suspectedCount), "Suspected proxy", "Flagged for lecturer review", "suspected"],
+          [String(scanOnlyCount), "Scan only", "Scan recorded without web check-in", "info"],
+          [String(absentCount), "Absent", "No attendance recorded", "absent"],
         ].map((item) => (
           <div className={`panel report-stat ${item[3]}`} key={item[1]}>
             <span className="report-stat-icon">
@@ -941,7 +1231,8 @@ export function Report() {
       </div>
       {scannerOffline && (
         <div className="scanner-banner" role="status">
-          Scanner offline from 09:31. Fingerprint results may be incomplete.
+          Scanner coverage: {reportData?.scanner_coverage.state ?? "offline"}.
+          Fingerprint results may be incomplete.
           Web-only statuses are displayed exactly as returned by the API.
         </div>
       )}
@@ -949,7 +1240,7 @@ export function Report() {
         <div className="panel-heading">
           <div>
             <h2>Attendance record</h2>
-            <p>API-classified results · 184 students on this roster</p>
+            <p>API-classified results · {registeredCount} students on this roster</p>
           </div>
           <div className="report-filters">
             {isMockMode() && (
@@ -959,7 +1250,6 @@ export function Report() {
                 value={scannerOffline ? "scanner_offline" : ""}
                 onChange={(event) => {
                   const offline = event.target.value === "scanner_offline";
-                  setLocalScannerOffline(offline);
                   if (mock)
                     setDemoScannerStatus(offline ? "offline" : "online");
                 }}
@@ -977,8 +1267,9 @@ export function Report() {
                 onChange={(event) => setDepartment(event.target.value)}
               >
                 <option>All departments</option>
-                <option>Computer Engineering</option>
-                <option>Electrical Engineering</option>
+                {departments.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
               </select>
             </label>
           </div>
@@ -1029,7 +1320,11 @@ export function Report() {
             Override selected ({selectedIds.length})
           </button>
         </div>
-        <div className="report-table-scroll">
+        {reportLoading ? (
+          <p role="status">Loading session report…</p>
+        ) : !rows.length ? (
+          <p className="empty-state">No attendance report records are available for this session.</p>
+        ) : <><div className="report-table-scroll">
           <table className="report-table">
             <thead>
               <tr>
@@ -1155,6 +1450,7 @@ export function Report() {
             </button>
           </article>
         ))}
+        </>}
       </section>
       {(selected || bulkOpen) && (
         <div className="dialog-backdrop" role="presentation">
@@ -1260,9 +1556,9 @@ export function Report() {
 }
 
 export function PrintSheet() {
-  const demoState = useDemoState();
-  const [searchParams] = useSearchParams();
   const mock = isMockMode();
+  const demoState = useDemoState(mock);
+  const [searchParams] = useSearchParams();
   const sessionId =
     searchParams.get("sessionId") ??
     (mock
@@ -1271,6 +1567,8 @@ export function PrintSheet() {
       : "");
   const [apiRows, setApiRows] = useState<RosterSheetRow[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(!mock);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const rows = mock
     ? demoState.students.map((student) => ({
         display_name: student.name,
@@ -1284,36 +1582,77 @@ export function PrintSheet() {
     if (mock) return;
     if (!sessionId) {
       setError("Open the print sheet from a session.");
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
+    setError("");
     void apiRequest<RosterPage>(
       `/sessions/${encodeURIComponent(sessionId)}/roster-sheet`,
     )
       .then((result) => {
         if (!cancelled) setApiRows(result.items);
       })
-      .catch(() => {
-        if (!cancelled)
-          setError("The roster sheet couldn't be loaded. Please try again.");
+      .catch((caught: unknown) => {
+        if (!cancelled) setError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [mock, sessionId]);
+  async function exportPdf() {
+    if (!sessionId) {
+      setError("Open the PDF export from a session.");
+      return;
+    }
+    if (mock) {
+      window.print();
+      return;
+    }
+    setExportingPdf(true);
+    setError("");
+    try {
+      await downloadApiFile(
+        `/sessions/${encodeURIComponent(sessionId)}/roster-sheet?format=pdf`,
+        `session-${sessionId}-roster.pdf`,
+      );
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setExportingPdf(false);
+    }
+  }
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow="SESSION REPORT · ENG 301"
+        eyebrow="SESSION ROSTER"
         title="Paper attendance sheet"
-        subtitle="Print this roster for signature-based attendance during a power or scanner outage."
+        subtitle={
+          sessionId
+            ? `Session ${sessionId} · signature roster`
+            : "Select a session to view its roster."
+        }
         action={
-          <button
-            className="button primary-button"
-            onClick={() => window.print()}
-          >
-            Print sheet
-          </button>
+          <div className="button-row">
+            <button
+              className="button secondary-button"
+              disabled={exportingPdf || !sessionId}
+              onClick={() => void exportPdf()}
+            >
+              {exportingPdf ? "Preparing PDF…" : "Download PDF"}
+            </button>
+            <button
+              className="button primary-button"
+              disabled={loading || !rows.length}
+              onClick={() => window.print()}
+            >
+              Print sheet
+            </button>
+          </div>
         }
       />
       {error && (
@@ -1323,11 +1662,10 @@ export function PrintSheet() {
       )}
       <section className="print-sheet panel">
         <h1>CampusCheck · Attendance register</h1>
-        <p>
-          Engineering Mathematics III · ENG 301 · 17 February 2025 · Engineering
-          Building, Lecture Theatre 2
-        </p>
-        <table>
+        <p>{sessionId ? `Session ${sessionId}` : "No session selected"}</p>
+        {loading ? (
+          <p role="status">Loading session roster…</p>
+        ) : rows.length ? <table>
           <thead>
             <tr>
               <th>Student name</th>
@@ -1344,7 +1682,7 @@ export function PrintSheet() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table> : <p className="empty-state">No roster records are available for this session.</p>}
       </section>
     </div>
   );

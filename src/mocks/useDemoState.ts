@@ -1,6 +1,29 @@
 import { useSyncExternalStore } from "react";
-import { getDemoState, subscribeDemoState } from "./store";
+import {
+  getDemoState,
+  subscribeDemoState,
+  type DemoState,
+} from "./store";
 
-export function useDemoState() {
-  return useSyncExternalStore(subscribeDemoState, getDemoState, getDemoState);
+const EMPTY_DEMO_STATE: DemoState = {
+  offerings: [],
+  students: [],
+  sessions: [],
+  scanners: [],
+  attendance: [],
+  enrollments: [],
+  pendingRegistrations: [],
+  auditEvents: [],
+};
+
+function subscribeToNothing() {
+  return () => {};
+}
+
+export function useDemoState(enabled = true) {
+  return useSyncExternalStore(
+    enabled ? subscribeDemoState : subscribeToNothing,
+    enabled ? getDemoState : () => EMPTY_DEMO_STATE,
+    enabled ? getDemoState : () => EMPTY_DEMO_STATE,
+  );
 }

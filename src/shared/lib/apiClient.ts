@@ -124,11 +124,14 @@ export async function apiRequest<T>(
     throw error;
   }
   if (response.status === 204) return undefined as T;
-  if (!response.headers.get("Content-Type")?.includes("application/json"))
-    return undefined as T;
-  if (response.headers.get("Content-Type")?.includes("text/csv"))
-    return response.blob() as Promise<T>;
-  return response.json() as Promise<T>;
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (
+    contentType.includes("text/csv") ||
+    contentType.includes("application/pdf")
+  )
+    return (await response.blob()) as T;
+  if (contentType.includes("application/json")) return response.json() as Promise<T>;
+  return undefined as T;
 }
 
 export async function downloadApiFile(
@@ -136,9 +139,10 @@ export async function downloadApiFile(
   filename: string,
   baseUrl?: string,
 ): Promise<void> {
+  const isPdf = filename.toLowerCase().endsWith(".pdf");
   const blob = await apiRequest<Blob>(
     path,
-    { headers: { Accept: "text/csv" } },
+    { headers: { Accept: isPdf ? "application/pdf" : "text/csv" } },
     baseUrl,
   );
   const url = URL.createObjectURL(blob);

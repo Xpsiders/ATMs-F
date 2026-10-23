@@ -4,6 +4,8 @@ import type { SessionCodeResponse } from "@/api/contracts";
 import { formatApiError } from "@/api/errors";
 export function useServerCode(sessionId: string, enabled = true) {
   const [code, setCode] = useState("");
+  const [session, setSession] =
+    useState<SessionCodeResponse["session"] | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
   const failures = useRef(0);
@@ -27,6 +29,7 @@ export function useServerCode(sessionId: string, enabled = true) {
         refreshTimer.current = undefined;
       }
       setCode(response.code);
+      setSession(response.session);
       setSeconds(Math.max(0, response.seconds_remaining));
       failures.current = 0;
       refreshScheduled.current = false;
@@ -69,5 +72,5 @@ export function useServerCode(sessionId: string, enabled = true) {
     refreshTimer.current = window.setTimeout(() => void refresh(), delay);
   }, [enabled, refresh, seconds]);
 
-  return { code, seconds, error, refresh };
+  return { code, seconds, error, refresh, session };
 }

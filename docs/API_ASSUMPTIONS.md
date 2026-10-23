@@ -41,6 +41,10 @@ operations and payloads; frontend aliases are maintained in
 | `POST /venues` / `PATCH /venues/{id}` / `DELETE /venues/{id}` | Create, update, or deactivate scoped venues. Create/update response schemas are generic objects without declared properties; the UI refreshes `GET /venues` after mutations instead of relying on response fields. |
 | `GET/POST/PATCH/DELETE /academic-sessions` and `/semesters` | Lists are paginated generic catalogue items that guarantee only `id`; the UI reads optional names, dates, and parent-session IDs when present. Create/update bodies use generated request types; delete returns 204. |
 | `POST /role-assignments` | Assigns only `department_admin` or `faculty_admin` with the matching `scope_type` and scope UUID. The UI collects the user/scope UUIDs because the contract exposes no user or faculty lookup for this form. |
+| `GET /sessions/{id}/live` | Returns current paginated session counts and roster classification. The live screen polls this endpoint every five seconds and loads all returned roster pages; the contract does not include web/scan timestamps or scanner coverage here. |
+| `GET /sessions/{id}/report` | JSON returns paginated attendance classifications and scanner-coverage intervals. The report page collects all JSON pages; the contract does not include web/scan timestamps or department names, so those display as unavailable / department IDs. |
+| `GET /sessions/{id}/report?format=pdf` | Returns the session report as `application/pdf`; the report screen downloads this server-generated PDF using the active session ID. |
+| `GET /sessions/{id}/roster-sheet?format=pdf` | Returns the ordered attendance roster as `application/pdf`; the roster screen supports this PDF download as well as browser printing. |
 
 `VITE_INSTITUTION_ID` must be set to the institution UUID for real login and
 student-claim requests. The repository does not provide an institution-specific
@@ -69,6 +73,11 @@ backend contract update.
 The email outbox retry worker is backend infrastructure. The contract exposes
 no worker control or email-delivery endpoint, so it is intentionally not
 represented as a frontend screen or operation.
+
+The report screen derives its displayed totals from the classified JSON report
+rows; it does not invent web-check-in or fingerprint-scan counts because those
+totals are not part of `SessionReportPage`. The live screen uses the counts
+provided by `/sessions/{id}/live`.
 
 The development mock password-reset flow uses a one-time demo code maintained
 only in `src/mocks/`; it is not a production default. The mock enforces
