@@ -107,12 +107,14 @@ Department, faculty, and institution admins can browse offerings visible to thei
 
 The UI treats a course as the product concept: admins create or select a course, then set the semester, level, registration, roster, and attendance settings that make it available for teaching. The lecturer can then teach that course and start class sessions for it. The user-facing create action no longer presents “course” and “offering” as unrelated workflows. A successful create refreshes `/offerings/search` and searches for the course code. A `202` response is presented as an awaiting-approval teaching request and is not shown as an active offering until approved.
 
+An optional lecturer account UUID can be entered in the same form. After an offering is created, the UI reads its assignments and sends the current lecturer IDs plus the new one via `PUT /offerings/{id}/lecturers`, preserving existing assignments. Existing course offerings retain their per-row “Manage lecturers” action. When `POST /offerings` returns a pending teaching request (`202`), no offering exists yet to assign; the UI explains that the lecturer can be assigned after approval.
+
 | Command | Result |
 | --- | --- |
 | `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
 | `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
-| `pnpm test --maxWorkers=1` | Passed; 13 test files and 70 tests passed. Coverage includes creating a course and its semester availability with generated payload types, scheduling an existing course, refreshing/searching the new course, and mock offering persistence/search. |
-| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.45 kB / 13.46 kB gzip**; JS chunks were **389.11 kB / 116.33 kB**, **32.47 kB / 8.13 kB**, and **31.92 kB / 8.94 kB gzip**. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and 70 tests passed. Coverage includes creating a course and its semester availability with generated payload types, optional lecturer assignment on new and existing courses, assignment retention, refreshing/searching the course, and mock persistence/search. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.45 kB / 13.46 kB gzip**; JS chunks were **389.11 kB / 116.33 kB**, **33.34 kB / 8.34 kB**, and **31.92 kB / 8.94 kB gzip**. |
 
 | Command                    | Result                                                                                                                                                                                 |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

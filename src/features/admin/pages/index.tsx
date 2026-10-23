@@ -1280,6 +1280,7 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
   const [catalogueError, setCatalogueError] = useState("");
   const [catalogueReloadKey, setCatalogueReloadKey] = useState(0);
   const [offeringCourseId, setOfferingCourseId] = useState(NEW_COURSE_OPTION);
+  const [courseLecturerId, setCourseLecturerId] = useState("");
   const [offeringSemesterId, setOfferingSemesterId] = useState("");
   const [offeringLevel, setOfferingLevel] = useState(100);
   const [registrationMode, setRegistrationMode] =
@@ -1438,6 +1439,8 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     let resolvedCourseCode = "";
     const creatingNewCourse = courseId === NEW_COURSE_OPTION;
     let courseCreated = false;
+    let offeringCreated = false;
+    let lecturerAlreadyAssigned = false;
     try {
       if (creatingNewCourse) {
         const coursePayload: CreateCourseRequest = {
@@ -1484,28 +1487,65 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
       });
       if ("teaching_request_id" in result) {
         setCourseMessage(
-          `${resolvedCourseCode ? `${resolvedCourseCode}: ` : ""}the teaching request is awaiting approval.`,
+          `${resolvedCourseCode ? `${resolvedCourseCode}: ` : ""}the teaching request is awaiting approval.${courseLecturerId.trim() ? " Assign the lecturer after approval using Manage lecturers." : ""}`,
         );
         return;
       }
-
-      setCourseMessage(
-        `${resolvedCourseCode ? `${resolvedCourseCode} ` : "Course "}is now available for ${
-          displayValue(
-            catalogueSemesters.find(({ id }) => id === offeringSemesterId),
-            ["name", "title", "code"],
-          ) ?? "the selected semester"
-        }.`,
-      );
-      if (resolvedCourseCode) setQuery(resolvedCourseCode);
+      offeringCreated = true;
       setReloadKey((key) => key + 1);
       setCatalogueReloadKey((key) => key + 1);
+      if (resolvedCourseCode) setQuery(resolvedCourseCode);
+
+      const lecturerId = courseLecturerId.trim();
+      if (lecturerId) {
+        const existingAssignments = await apiRequest<OfferingLecturersResponse>(
+          `/offerings/${encodeURIComponent(result.id)}/lecturers`,
+        );
+        lecturerAlreadyAssigned = existingAssignments.some(
+          ({ id }) => id === lecturerId,
+        );
+        if (!lecturerAlreadyAssigned) {
+          const assignment: SetOfferingLecturersRequest = {
+            lecturer_ids: [
+              ...existingAssignments.map(({ id }) => id),
+              lecturerId,
+            ],
+          };
+          await apiRequest<SetOfferingLecturersResponse>(
+            `/offerings/${encodeURIComponent(result.id)}/lecturers`,
+            {
+              method: "PUT",
+              body: JSON.stringify(assignment),
+            },
+          );
+        }
+      }
+
+      const courseLabel = resolvedCourseCode || "Course";
+      const semesterLabel =
+        displayValue(
+          catalogueSemesters.find(({ id }) => id === offeringSemesterId),
+          ["name", "title", "code"],
+        ) ?? "the selected semester";
+      const lecturerStatus = courseLecturerId.trim()
+        ? lecturerAlreadyAssigned
+          ? " The lecturer was already assigned."
+          : " The lecturer was assigned."
+        : "";
+      setCourseMessage(
+        `${courseLabel} is now available for ${semesterLabel}.${lecturerStatus}`,
+      );
+      setCourseLecturerId("");
       setCourseCode("");
       setCourseTitle("");
       setCourseDescription("");
       setCourseCredits("");
     } catch (caught) {
-      if (courseCreated) {
+      if (offeringCreated) {
+        setCourseError(
+          `${resolvedCourseCode ? `${resolvedCourseCode} ` : "The course "}is available for the selected semester, but the lecturer could not be assigned: ${formatApiError(caught)}`,
+        );
+      } else if (courseCreated) {
         setCourseError(
           `${resolvedCourseCode} was created, but could not be made available for the selected semester: ${formatApiError(caught)}`,
         );
@@ -1796,6 +1836,15 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
             />
           </label>
           <label className="field-label">
+            Lecturer account UUID (optional)
+            <input
+              className="field-control"
+              value={courseLecturerId}
+              onChange={(event) => setCourseLecturerId(event.target.value)}
+              placeholder="Enter the lecturer's account UUID"
+            />
+          </label>
+          <label className="field-label">
             Registration mode
             <select
               className="field-control"
@@ -1977,8 +2026,8 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
                       <p role="status">Loading assigned lecturers…</p>
                     ) : !lecturersReady ? (
                       <p>
-                        Load the current assignments before adding a lecturer
-                        so existing assignments are preserved.
+                        Load the current assignments before adding a lecturer so
+                        existing assignments are preserved.
                       </p>
                     ) : (
                       <>
@@ -1998,9 +2047,7 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
                         )}
                         <form
                           className="admin-add-lecturer-form"
-                          onSubmit={(event) =>
-                            void addOfferingLecturer(event)
-                          }
+                          onSubmit={(event) => void addOfferingLecturer(event)}
                         >
                           <label className="field-label">
                             Lecturer account UUID

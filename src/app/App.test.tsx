@@ -766,6 +766,7 @@ describe("Campus Attendance screens", () => {
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
     let submitted: CreateCourseRequest | null = null;
     let submittedOffering: CreateOfferingRequest | null = null;
+    let submittedLecturerIds: string[] = [];
     const semesterId = "30000000-0000-4000-8000-000000000104";
     server.use(
       http.get(`${apiBaseUrl}/semesters`, () =>
@@ -790,6 +791,18 @@ describe("Campus Attendance screens", () => {
           { status: 201 },
         );
       }),
+      http.get(
+        `${apiBaseUrl}/offerings/30000000-0000-4000-8000-000000000105/lecturers`,
+        () => HttpResponse.json([] satisfies OfferingLecturersResponse),
+      ),
+      http.put(
+        `${apiBaseUrl}/offerings/30000000-0000-4000-8000-000000000105/lecturers`,
+        async ({ request }) => {
+          const payload = (await request.json()) as SetOfferingLecturersRequest;
+          submittedLecturerIds = payload.lecturer_ids;
+          return HttpResponse.json({ lecturer_ids: payload.lecturer_ids });
+        },
+      ),
     );
     renderApp("/courses", true, "department-admin");
 
@@ -802,6 +815,10 @@ describe("Campus Attendance screens", () => {
       screen.getByLabelText("Description (optional)"),
       "An introduction to cell structure.",
     );
+    await user.type(
+      screen.getByLabelText("Lecturer account UUID (optional)"),
+      "20000000-0000-4000-8000-000000000010",
+    );
     await user.selectOptions(
       await screen.findByRole("combobox", { name: "Semester" }),
       semesterId,
@@ -809,7 +826,9 @@ describe("Campus Attendance screens", () => {
     await user.click(screen.getByRole("button", { name: "Create course" }));
 
     expect(
-      await screen.findByText("BIO 201 is now available for Semester 1."),
+      await screen.findByText(
+        "BIO 201 is now available for Semester 1. The lecturer was assigned.",
+      ),
     ).toHaveAttribute("role", "status");
     expect(submitted).toEqual({
       department_id: "10000000-0000-4000-8000-000000000004",
@@ -828,6 +847,9 @@ describe("Campus Attendance screens", () => {
       min_attendance_pct: 75,
       late_counts_as_attended: false,
     });
+    expect(submittedLecturerIds).toEqual([
+      "20000000-0000-4000-8000-000000000010",
+    ]);
   });
 
   it("creates an offering and searches for it in the refreshed offerings list", async () => {
@@ -837,6 +859,7 @@ describe("Campus Attendance screens", () => {
     const courseId = "30000000-0000-4000-8000-000000000101";
     const semesterId = "30000000-0000-4000-8000-000000000102";
     let submitted: CreateOfferingRequest | null = null;
+    let submittedLecturerIds: string[] = [];
     server.use(
       http.get(`${apiBaseUrl}/courses`, () =>
         HttpResponse.json({
@@ -868,6 +891,18 @@ describe("Campus Attendance screens", () => {
           { status: 201 },
         );
       }),
+      http.get(
+        `${apiBaseUrl}/offerings/30000000-0000-4000-8000-000000000103/lecturers`,
+        () => HttpResponse.json([] satisfies OfferingLecturersResponse),
+      ),
+      http.put(
+        `${apiBaseUrl}/offerings/30000000-0000-4000-8000-000000000103/lecturers`,
+        async ({ request }) => {
+          const payload = (await request.json()) as SetOfferingLecturersRequest;
+          submittedLecturerIds = payload.lecturer_ids;
+          return HttpResponse.json({ lecturer_ids: payload.lecturer_ids });
+        },
+      ),
       http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
         const query = new URL(request.url).searchParams.get("q") ?? "";
         const items: SearchOfferingsResponse["items"] = query.includes(
@@ -920,12 +955,18 @@ describe("Campus Attendance screens", () => {
       screen.getByRole("combobox", { name: "Registration mode" }),
       "approval",
     );
+    await user.type(
+      screen.getByLabelText("Lecturer account UUID (optional)"),
+      "20000000-0000-4000-8000-000000000010",
+    );
     await user.click(
       screen.getByRole("button", { name: "Add course to semester" }),
     );
 
     expect(
-      await screen.findByText("CPE 499 is now available for Semester 1."),
+      await screen.findByText(
+        "CPE 499 is now available for Semester 1. The lecturer was assigned.",
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("heading", {
@@ -941,6 +982,9 @@ describe("Campus Attendance screens", () => {
       min_attendance_pct: 75,
       late_counts_as_attended: false,
     });
+    expect(submittedLecturerIds).toEqual([
+      "20000000-0000-4000-8000-000000000010",
+    ]);
   });
 
   it("shows scanner coverage loss and the fixed-code banner", async () => {
