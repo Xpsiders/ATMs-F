@@ -3,6 +3,10 @@ import { apiRequest } from "@/shared/lib/apiClient";
 import { ApiError, formatApiError } from "@/api/errors";
 import type {
   AcademicSessionsResponse,
+  CatalogueItem,
+  CatalogueListResponse,
+  CreateOfferingRequest,
+  CreateOfferingResponse,
   CreateAcademicSessionRequest,
   CreateAcademicSessionResponse,
   CreateCourseRequest,
@@ -37,6 +41,7 @@ import type {
 import { Icon, PageHeading } from "@/shared/ui/primitives";
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
+const NEW_COURSE_OPTION = "__new_course__";
 
 function readObjectField(value: unknown, field: string): unknown {
   if (typeof value !== "object" || value === null) return undefined;
@@ -60,6 +65,21 @@ function csvError(error: unknown): string {
   if (error instanceof ApiError && error.status === 422)
     return "The server found rows that are no longer valid. Review the updated errors before committing again.";
   return formatApiError(error);
+}
+
+async function loadCatalogueItems(path: string): Promise<CatalogueItem[]> {
+  const items: CatalogueItem[] = [];
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const page = await apiRequest<CatalogueListResponse>(
+      `${path}?limit=200&offset=${offset}`,
+    );
+    items.push(...page.items);
+    offset += page.items.length;
+    hasMore = page.has_more && page.items.length > 0;
+  }
+  return items;
 }
 
 export function ImportStudents() {
@@ -1252,6 +1272,22 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
   const [coursePending, setCoursePending] = useState(false);
   const [courseError, setCourseError] = useState("");
   const [courseMessage, setCourseMessage] = useState("");
+  const [catalogueCourses, setCatalogueCourses] = useState<CatalogueItem[]>([]);
+  const [catalogueSemesters, setCatalogueSemesters] = useState<CatalogueItem[]>(
+    [],
+  );
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueError, setCatalogueError] = useState("");
+  const [catalogueReloadKey, setCatalogueReloadKey] = useState(0);
+  const [offeringCourseId, setOfferingCourseId] = useState(NEW_COURSE_OPTION);
+  const [offeringSemesterId, setOfferingSemesterId] = useState("");
+  const [offeringLevel, setOfferingLevel] = useState(100);
+  const [registrationMode, setRegistrationMode] =
+    useState<CreateOfferingRequest["registration_mode"]>("open");
+  const [rosterPolicy, setRosterPolicy] =
+    useState<CreateOfferingRequest["roster_policy"]>("open");
+  const [minimumAttendance, setMinimumAttendance] = useState(75);
+  const [lateCountsAsAttended, setLateCountsAsAttended] = useState(false);
   const [managedOffering, setManagedOffering] = useState<
     SearchOfferingsResponse["items"][number] | null
   >(null);
@@ -1277,6 +1313,41 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     departmentAdminRole?.department_id ??
     departmentAdminRole?.scope_id ??
     undefined;
+
+  useEffect(() => {
+    let active = true;
+    setCatalogueLoading(true);
+    setCatalogueError("");
+    void Promise.all([
+      loadCatalogueItems("/courses"),
+      loadCatalogueItems("/semesters"),
+    ])
+      .then(([courses, semesters]) => {
+        if (!active) return;
+        setCatalogueCourses(courses);
+        setCatalogueSemesters(semesters);
+        setOfferingCourseId((current) =>
+          current === NEW_COURSE_OPTION ||
+          courses.some(({ id }) => id === current)
+            ? current
+            : NEW_COURSE_OPTION,
+        );
+        setOfferingSemesterId((current) =>
+          semesters.some(({ id }) => id === current)
+            ? current
+            : (semesters[0]?.id ?? ""),
+        );
+      })
+      .catch((caught: unknown) => {
+        if (active) setCatalogueError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setCatalogueLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [catalogueReloadKey]);
 
   useEffect(() => {
     if (scopedDepartmentId) {
@@ -1363,28 +1434,84 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     setCoursePending(true);
     setCourseError("");
     setCourseMessage("");
-    const payload: CreateCourseRequest = {
-      department_id: departmentId,
-      code: courseCode.trim(),
-      title: courseTitle.trim(),
-      ...(courseKind ? { kind: courseKind } : {}),
-      ...(courseDescription.trim()
-        ? { description: courseDescription.trim() }
-        : {}),
-      ...(courseCredits !== "" ? { credits: Number(courseCredits) } : {}),
-    };
+    let courseId = offeringCourseId;
+    let resolvedCourseCode = "";
+    const creatingNewCourse = courseId === NEW_COURSE_OPTION;
+    let courseCreated = false;
     try {
-      await apiRequest<CreateCourseResponse>("/courses", {
+      if (creatingNewCourse) {
+        const coursePayload: CreateCourseRequest = {
+          department_id: departmentId,
+          code: courseCode.trim(),
+          title: courseTitle.trim(),
+          ...(courseKind ? { kind: courseKind } : {}),
+          ...(courseDescription.trim()
+            ? { description: courseDescription.trim() }
+            : {}),
+          ...(courseCredits !== "" ? { credits: Number(courseCredits) } : {}),
+        };
+        const createdCourse = await apiRequest<CreateCourseResponse>(
+          "/courses",
+          {
+            method: "POST",
+            body: JSON.stringify(coursePayload),
+          },
+        );
+        courseId = createdCourse.id;
+        courseCreated = true;
+        resolvedCourseCode = coursePayload.code;
+        setOfferingCourseId(courseId);
+        setCatalogueReloadKey((key) => key + 1);
+      } else {
+        const selectedCourse = catalogueCourses.find(
+          ({ id }) => id === courseId,
+        );
+        resolvedCourseCode = displayValue(selectedCourse, ["code"]) ?? "";
+      }
+
+      const offeringPayload: CreateOfferingRequest = {
+        course_id: courseId,
+        semester_id: offeringSemesterId,
+        level: offeringLevel,
+        registration_mode: registrationMode,
+        roster_policy: rosterPolicy,
+        min_attendance_pct: minimumAttendance,
+        late_counts_as_attended: lateCountsAsAttended,
+      };
+      const result = await apiRequest<CreateOfferingResponse>("/offerings", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(offeringPayload),
       });
-      setCourseMessage(`${payload.code} — ${payload.title} was created.`);
+      if ("teaching_request_id" in result) {
+        setCourseMessage(
+          `${resolvedCourseCode ? `${resolvedCourseCode}: ` : ""}the teaching request is awaiting approval.`,
+        );
+        return;
+      }
+
+      setCourseMessage(
+        `${resolvedCourseCode ? `${resolvedCourseCode} ` : "Course "}is now available for ${
+          displayValue(
+            catalogueSemesters.find(({ id }) => id === offeringSemesterId),
+            ["name", "title", "code"],
+          ) ?? "the selected semester"
+        }.`,
+      );
+      if (resolvedCourseCode) setQuery(resolvedCourseCode);
+      setReloadKey((key) => key + 1);
+      setCatalogueReloadKey((key) => key + 1);
       setCourseCode("");
       setCourseTitle("");
       setCourseDescription("");
       setCourseCredits("");
     } catch (caught) {
-      setCourseError(formatApiError(caught));
+      if (courseCreated) {
+        setCourseError(
+          `${resolvedCourseCode} was created, but could not be made available for the selected semester: ${formatApiError(caught)}`,
+        );
+      } else {
+        setCourseError(formatApiError(caught));
+      }
     } finally {
       setCoursePending(false);
     }
@@ -1443,8 +1570,7 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
           (lecturerId) =>
             assignedLecturers.find(
               ({ id: currentId }) => currentId === lecturerId,
-            ) ??
-            { id: lecturerId, display_name: lecturerId, email: "" },
+            ) ?? { id: lecturerId, display_name: lecturerId, email: "" },
         ),
       );
       setLecturersReady(true);
@@ -1481,13 +1607,15 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
       <PageHeading
         eyebrow="SCOPED ADMINISTRATION"
         title="Courses & offerings"
-        subtitle={`Courses and offerings visible to ${user.name}'s administrator scope, with their assigned lecturers.`}
+        subtitle={`Courses available in ${user.name}'s administrator scope, with their assigned lecturers.`}
       />
       <section className="panel">
         <h2>Create a course</h2>
         <p className="admin-offering-note">
-          Course creation is limited by your administrator scope. The backend
-          validates that the selected department is within that scope.
+          Create a course and make it available for a semester in one step, or
+          choose an existing course to add it to another semester. Semester,
+          level, and registration details configure how the course is offered;
+          the lecturer can then start class sessions for it.
         </p>
         {courseError && (
           <div className="form-error" role="alert">
@@ -1511,102 +1639,241 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
             </button>
           </div>
         )}
+        {catalogueError && (
+          <div className="api-state-error" role="alert">
+            <p>{catalogueError}</p>
+            <button
+              className="text-button"
+              onClick={() => setCatalogueReloadKey((key) => key + 1)}
+              type="button"
+            >
+              Retry course and semester lists
+            </button>
+          </div>
+        )}
         <form className="admin-course-form" onSubmit={createCourse}>
           <label className="field-label">
-            Department
+            Course
             <select
               className="field-control"
               required
-              value={departmentId}
-              onChange={(event) => setDepartmentId(event.target.value)}
-              disabled={
-                departmentsLoading ||
-                coursePending ||
-                departmentOptions.length === 0
-              }
+              value={offeringCourseId}
+              onChange={(event) => setOfferingCourseId(event.target.value)}
+              disabled={catalogueLoading || coursePending}
             >
-              {departmentOptions.length === 0 && (
+              <option value={NEW_COURSE_OPTION}>Create a new course…</option>
+              {catalogueCourses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {[
+                    displayValue(course, ["code"]),
+                    displayValue(course, ["title", "name"]),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || course.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          {offeringCourseId === NEW_COURSE_OPTION && (
+            <>
+              <label className="field-label">
+                Department
+                <select
+                  className="field-control"
+                  required
+                  value={departmentId}
+                  onChange={(event) => setDepartmentId(event.target.value)}
+                  disabled={
+                    departmentsLoading ||
+                    coursePending ||
+                    departmentOptions.length === 0
+                  }
+                >
+                  {departmentOptions.length === 0 && (
+                    <option value="">
+                      {departmentsLoading
+                        ? "Loading departments…"
+                        : "No departments available"}
+                    </option>
+                  )}
+                  {departmentOptions.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Course code
+                <input
+                  className="field-control"
+                  required
+                  value={courseCode}
+                  onChange={(event) => setCourseCode(event.target.value)}
+                />
+              </label>
+              <label className="field-label">
+                Course title
+                <input
+                  className="field-control"
+                  required
+                  value={courseTitle}
+                  onChange={(event) => setCourseTitle(event.target.value)}
+                />
+              </label>
+              <label className="field-label">
+                Course kind
+                <select
+                  className="field-control"
+                  value={courseKind}
+                  onChange={(event) =>
+                    setCourseKind(
+                      event.target.value === "general"
+                        ? "general"
+                        : "departmental",
+                    )
+                  }
+                >
+                  <option value="departmental">Departmental</option>
+                  <option value="general">General</option>
+                </select>
+              </label>
+              <label className="field-label">
+                Credits (optional)
+                <input
+                  className="field-control"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={courseCredits}
+                  onChange={(event) => setCourseCredits(event.target.value)}
+                />
+              </label>
+              <label className="field-label admin-course-description">
+                Description (optional)
+                <textarea
+                  className="field-control"
+                  value={courseDescription}
+                  onChange={(event) => setCourseDescription(event.target.value)}
+                  rows={3}
+                />
+              </label>
+            </>
+          )}
+          <label className="field-label">
+            Semester
+            <select
+              className="field-control"
+              required
+              value={offeringSemesterId}
+              onChange={(event) => setOfferingSemesterId(event.target.value)}
+              disabled={catalogueLoading || catalogueSemesters.length === 0}
+            >
+              {catalogueSemesters.length === 0 && (
                 <option value="">
-                  {departmentsLoading
-                    ? "Loading departments…"
-                    : "No departments available"}
+                  {catalogueLoading
+                    ? "Loading semesters…"
+                    : "Create a semester in Academic calendar first"}
                 </option>
               )}
-              {departmentOptions.map((department) => (
-                <option key={department.id} value={department.id}>
-                  {department.name}
+              {catalogueSemesters.map((semester) => (
+                <option key={semester.id} value={semester.id}>
+                  {displayValue(semester, ["name", "title", "code"]) ??
+                    semester.id}
                 </option>
               ))}
             </select>
           </label>
           <label className="field-label">
-            Course code
+            Level
             <input
               className="field-control"
+              type="number"
+              min="1"
+              value={offeringLevel}
+              onChange={(event) => setOfferingLevel(Number(event.target.value))}
               required
-              value={courseCode}
-              onChange={(event) => setCourseCode(event.target.value)}
             />
           </label>
           <label className="field-label">
-            Course title
-            <input
-              className="field-control"
-              required
-              value={courseTitle}
-              onChange={(event) => setCourseTitle(event.target.value)}
-            />
-          </label>
-          <label className="field-label">
-            Course kind
+            Registration mode
             <select
               className="field-control"
-              value={courseKind}
+              value={registrationMode}
               onChange={(event) =>
-                setCourseKind(
-                  event.target.value === "general" ? "general" : "departmental",
+                setRegistrationMode(
+                  event.target
+                    .value as CreateOfferingRequest["registration_mode"],
                 )
               }
             >
-              <option value="departmental">Departmental</option>
-              <option value="general">General</option>
+              <option value="auto">Automatic</option>
+              <option value="open">Open</option>
+              <option value="approval">Approval required</option>
+              <option value="closed">Closed</option>
             </select>
           </label>
           <label className="field-label">
-            Credits (optional)
+            Roster policy
+            <select
+              className="field-control"
+              value={rosterPolicy}
+              onChange={(event) =>
+                setRosterPolicy(
+                  event.target.value as CreateOfferingRequest["roster_policy"],
+                )
+              }
+            >
+              <option value="open">Open</option>
+              <option value="registered_only">Registered students only</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Minimum attendance (%)
             <input
               className="field-control"
               type="number"
               min="0"
+              max="100"
               step="1"
-              value={courseCredits}
-              onChange={(event) => setCourseCredits(event.target.value)}
+              value={minimumAttendance}
+              onChange={(event) =>
+                setMinimumAttendance(Number(event.target.value))
+              }
+              required
             />
           </label>
-          <label className="field-label admin-course-description">
-            Description (optional)
-            <textarea
-              className="field-control"
-              value={courseDescription}
-              onChange={(event) => setCourseDescription(event.target.value)}
-              rows={3}
+          <label className="session-option">
+            <input
+              type="checkbox"
+              checked={lateCountsAsAttended}
+              onChange={(event) =>
+                setLateCountsAsAttended(event.target.checked)
+              }
             />
+            Late attendance counts as attended
           </label>
           <button
             className="button primary-button"
             disabled={
               coursePending ||
-              departmentsLoading ||
-              departmentOptions.length === 0
+              catalogueLoading ||
+              catalogueSemesters.length === 0 ||
+              (offeringCourseId === NEW_COURSE_OPTION &&
+                (departmentsLoading || departmentOptions.length === 0))
             }
             type="submit"
           >
-            {coursePending ? "Creating course…" : "Create course"}
+            {coursePending
+              ? "Saving course…"
+              : offeringCourseId === NEW_COURSE_OPTION
+                ? "Create course"
+                : "Add course to semester"}
           </button>
         </form>
       </section>
       <section className="panel">
-        <h2>Existing offerings</h2>
+        <h2>Courses</h2>
         <label className="search-field admin-offering-search">
           <Icon name="search" />
           <input
@@ -1617,8 +1884,8 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
           />
         </label>
         <p className="admin-offering-note">
-          Lecturer names are shown for each offering. This is not a directory of
-          staff who have no course assignments.
+          Lecturer names are shown for each course in its semester. This is not
+          a directory of staff who have no courses assigned.
         </p>
         {loading ? (
           <p role="status">Loading scoped courses and offerings…</p>

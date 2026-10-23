@@ -4,6 +4,7 @@ import type {
   AcademicSessionsResponse,
   CreateAcademicSessionRequest,
   CreateCourseRequest,
+  CreateOfferingRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
   OfferingLecturersResponse,
@@ -31,8 +32,11 @@ export type DemoOffering = {
   department: string;
   level: string;
   kind: "Core" | "Elective" | "General";
-  registration: "Open" | "Approval" | "Closed";
+  registration: "Auto" | "Open" | "Approval" | "Closed";
   lecturer: string;
+  courseId?: string;
+  semesterId?: string;
+  semesterName?: string;
   attendanceSummary: {
     sessionsHeld: number;
     sessionsAttended: number;
@@ -415,12 +419,89 @@ export function createDemoCourse(
 }
 
 export function listDemoCourses(): components["schemas"]["PagedCatalogueItems"] {
+  const seededCourses = demoState.offerings.map((offering) => ({
+    id: offering.courseId ?? offering.id,
+    department_id: demoDepartmentId(offering.department),
+    code: offering.code,
+    title: offering.title,
+    kind: offering.kind === "General" ? "general" : "departmental",
+  }));
+  const seededIds = new Set(seededCourses.map(({ id }) => id));
+  const items = [
+    ...seededCourses,
+    ...demoCourses.filter((course) => !seededIds.has(course.id)),
+  ];
   return {
-    items: structuredClone(demoCourses),
-    limit: demoCourses.length,
+    items: structuredClone(items),
+    limit: items.length,
     offset: 0,
     has_more: false,
   };
+}
+
+function catalogueString(
+  item: components["schemas"]["CatalogueItem"],
+  key: string,
+): string | undefined {
+  const value = Object.getOwnPropertyDescriptor(item, key)?.value;
+  return typeof value === "string" ? value : undefined;
+}
+
+export function createDemoOffering(
+  request: CreateOfferingRequest,
+): components["schemas"]["CatalogueItem"] | null {
+  const course = listDemoCourses().items.find(
+    ({ id }) => id === request.course_id,
+  );
+  const semester = demoSemesters.find(({ id }) => id === request.semester_id);
+  if (!course || !semester) return null;
+
+  const departmentId = catalogueString(course, "department_id");
+  const department = listDemoDepartments().items.find(
+    ({ id }) => id === departmentId,
+  );
+  const departmentName = department
+    ? catalogueString(department, "name")
+    : undefined;
+  const code = catalogueString(course, "code");
+  const title = catalogueString(course, "title");
+  if (!departmentName || !code || !title) return null;
+
+  const id = globalThis.crypto.randomUUID();
+  const registration =
+    request.registration_mode === "auto"
+      ? "Auto"
+      : request.registration_mode === "approval"
+        ? "Approval"
+        : request.registration_mode === "closed"
+          ? "Closed"
+          : "Open";
+  const offering: DemoOffering = {
+    id,
+    courseId: request.course_id,
+    semesterId: request.semester_id,
+    semesterName:
+      catalogueString(semester, "name") ??
+      catalogueString(semester, "title") ??
+      request.semester_id,
+    code,
+    title,
+    department: departmentName,
+    level: `${request.level} level`,
+    kind: catalogueString(course, "kind") === "general" ? "General" : "Core",
+    registration,
+    lecturer: "",
+    attendanceSummary: {
+      sessionsHeld: 0,
+      sessionsAttended: 0,
+      minimumPercentage: request.min_attendance_pct,
+    },
+  };
+  updateDemoState((current) => ({
+    ...current,
+    offerings: [...current.offerings, offering],
+  }));
+  return { id, ...request };
 }
 
 export function listDemoOfferingLecturers(
@@ -768,7 +849,7 @@ export function searchDemoOfferings(
         demoState.enrollments.includes(offering.code) && !pending;
       return {
         offering_id: offering.id,
-        course_id: offering.id,
+        course_id: offering.courseId ?? offering.id,
         course_code: offering.code,
         course_title: offering.title,
         code: offering.code,
@@ -778,11 +859,13 @@ export function searchDemoOfferings(
         level: Number.parseInt(offering.level, 10),
         kind: offering.kind === "General" ? "general" : "departmental",
         registration_mode:
-          offering.registration === "Open"
-            ? "open"
+          offering.registration === "Auto"
+            ? "auto"
             : offering.registration === "Approval"
               ? "approval"
-              : "closed",
+              : offering.registration === "Closed"
+                ? "closed"
+                : "open",
         lecturers: listDemoOfferingLecturers(offering.id).map(
           ({ display_name }) => display_name,
         ),
@@ -793,8 +876,9 @@ export function searchDemoOfferings(
             : "none",
         is_registered: registered,
         is_pending: pending,
-        semester_id: "10000000-0000-4000-8000-000000000002",
-        semester: "Semester 2",
+        semester_id:
+          offering.semesterId ?? "10000000-0000-4000-8000-000000000002",
+        semester: offering.semesterName ?? "Semester 2",
         rank: 1,
       };
     });

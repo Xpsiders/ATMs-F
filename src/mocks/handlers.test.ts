@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AcademicSessionsResponse,
   CreateAcademicSessionResponse,
+  CreateOfferingRequest,
+  SearchOfferingsResponse,
   VenueListResponse,
 } from "@/api/contracts";
 import {
@@ -165,16 +167,75 @@ describe("new API mock handlers", () => {
 
     const list = await fetch(`${apiBaseUrl}/courses`);
     expect(list.status).toBe(200);
-    await expect(list.json()).resolves.toMatchObject({
-      items: [
-        {
-          id: created.id,
-          department_id: "10000000-0000-4000-8000-000000000004",
-          code: "CPE 401",
-          title: "Advanced Design",
-        },
-      ],
+    const listed: { items: Array<Record<string, unknown>> } = await list.json();
+    expect(listed.items).toContainEqual(
+      expect.objectContaining({
+        id: created.id,
+        department_id: "10000000-0000-4000-8000-000000000004",
+        code: "CPE 401",
+        title: "Advanced Design",
+      }),
+    );
+  });
+
+  it("creates a mock offering and makes it searchable", async () => {
+    vi.stubEnv("VITE_USE_MOCKS", "true");
+    startMockSession("department-admin");
+
+    const session = await fetch(`${apiBaseUrl}/academic-sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "2026/2027",
+        starts_on: "2026-09-01",
+        ends_on: "2027-06-30",
+      }),
     });
+    const academicSession: { id: string } = await session.json();
+    const semester = await fetch(`${apiBaseUrl}/semesters`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        academic_session_id: academicSession.id,
+        name: "Semester 1",
+        starts_on: "2026-09-01",
+        ends_on: "2026-12-31",
+      }),
+    });
+    const createdSemester: { id: string } = await semester.json();
+
+    const payload: CreateOfferingRequest = {
+      course_id: "10000000-0000-4000-8000-000000000305",
+      semester_id: createdSemester.id,
+      level: 400,
+      registration_mode: "approval",
+      roster_policy: "registered_only",
+      min_attendance_pct: 75,
+      late_counts_as_attended: false,
+    };
+    const response = await fetch(`${apiBaseUrl}/offerings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    expect(response.status).toBe(201);
+    const created: { id: string } = await response.json();
+
+    const results = await fetch(
+      `${apiBaseUrl}/offerings/search?q=CPE%20305&limit=50&offset=0`,
+    );
+    expect(results.status).toBe(200);
+    const search: SearchOfferingsResponse = await results.json();
+    expect(search.items).toContainEqual(
+      expect.objectContaining({
+        offering_id: created.id,
+        course_code: "CPE 305",
+        course_title: "Computer Architecture",
+        level: 400,
+        registration_mode: "approval",
+        semester: "Semester 1",
+      }),
+    );
   });
 
   it("adds a mock lecturer while retaining the existing offering assignments", async () => {

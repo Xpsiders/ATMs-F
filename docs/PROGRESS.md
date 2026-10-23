@@ -101,7 +101,18 @@ The following are not established yet: 375/768/1280 automated viewport coverage,
 
 ## Scoped admin courses and offerings
 
-Department, faculty, and institution admins can browse offerings visible to their authenticated scope through `/offerings/search`; each result includes lecturer names assigned to that offering. The page also creates courses through typed `POST /courses`: department admins submit their `GET /me` department scope, while faculty and institution admins choose from departments loaded from `GET /departments`; the server authorizes the target department. The mock implements create/list persistence and enforces its demo scope. Faculty-admin accounts are mapped to the admin workspace from the `faculty_admin` role returned by `GET /me`. There is no independent staff-directory endpoint; course/offering update and delete are still unimplemented.
+Department, faculty, and institution admins can browse offerings visible to their authenticated scope through `/offerings/search`; each result includes lecturer names assigned to that course. The unified course form creates a new catalogue course and makes it available for a selected semester in one submit, or schedules an existing course for another semester. New-course creation calls typed `POST /courses` followed by `POST /offerings`, because the backend stores the course and its semester offering separately. If the second request fails, the UI explicitly reports that the course exists but was not scheduled. A successful create refreshes search and filters the list to the new course. Department admins use their `GET /me` department scope, while faculty and institution admins select a department loaded from `GET /departments`; the backend authorizes the target department. The mock persists and searches the created offerings. Faculty-admin accounts are mapped to the admin workspace from the `faculty_admin` role returned by `GET /me`. There is no independent staff-directory endpoint; course/offering edit and delete remain unimplemented.
+
+### Unified course creation and search
+
+The UI treats a course as the product concept: admins create or select a course, then set the semester, level, registration, roster, and attendance settings that make it available for teaching. The lecturer can then teach that course and start class sessions for it. The user-facing create action no longer presents “course” and “offering” as unrelated workflows. A successful create refreshes `/offerings/search` and searches for the course code. A `202` response is presented as an awaiting-approval teaching request and is not shown as an active offering until approved.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 13 test files and 70 tests passed. Coverage includes creating a course and its semester availability with generated payload types, scheduling an existing course, refreshing/searching the new course, and mock offering persistence/search. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.45 kB / 13.46 kB gzip**; JS chunks were **389.11 kB / 116.33 kB**, **32.47 kB / 8.13 kB**, and **31.92 kB / 8.94 kB gzip**. |
 
 | Command                    | Result                                                                                                                                                                                 |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

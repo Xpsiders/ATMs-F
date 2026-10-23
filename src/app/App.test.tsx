@@ -14,12 +14,15 @@ import { server } from "@/test/setup";
 import type {
   CurrentUser,
   CreateCourseRequest,
+  CreateOfferingRequest,
+  CatalogueListResponse,
   DepartmentCatalogueResponse,
   EndSessionResponse,
   LiveClassesResponse,
   OfferingLecturersResponse,
   OfferingsResponse,
   SearchOfferingsResponse,
+  SemestersResponse,
   SessionCodeResponse,
   StartSessionRequest,
   StartSessionResponse,
@@ -619,13 +622,15 @@ describe("Campus Attendance screens", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText(/Engineering Mathematics III/),
+      await screen.findByRole("heading", {
+        name: /Engineering Mathematics III/,
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
     expect(screen.getByText("Mr. Chidi Obi")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /not a directory of staff who have no course assignments/i,
+        /not a directory of staff who have no courses assigned/i,
       ),
     ).toBeInTheDocument();
   });
@@ -635,7 +640,16 @@ describe("Campus Attendance screens", () => {
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
     let createdDepartmentId = "";
+    const semesterId = "30000000-0000-4000-8000-000000000004";
     server.use(
+      http.get(`${apiBaseUrl}/semesters`, () =>
+        HttpResponse.json({
+          items: [{ id: semesterId, name: "Semester 1" }],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies SemestersResponse),
+      ),
       http.post(`${apiBaseUrl}/courses`, async ({ request }) => {
         const payload = (await request.json()) as CreateCourseRequest;
         createdDepartmentId = payload.department_id;
@@ -644,6 +658,12 @@ describe("Campus Attendance screens", () => {
           { status: 201 },
         );
       }),
+      http.post(`${apiBaseUrl}/offerings`, () =>
+        HttpResponse.json(
+          { id: "30000000-0000-4000-8000-000000000005" },
+          { status: 201 },
+        ),
+      ),
     );
     renderApp("/courses", true, "faculty-admin");
 
@@ -655,7 +675,9 @@ describe("Campus Attendance screens", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText(/Engineering Mathematics III/),
+      await screen.findByRole("heading", {
+        name: /Engineering Mathematics III/,
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Course code"), "CPE 401");
@@ -664,9 +686,13 @@ describe("Campus Attendance screens", () => {
       screen.getByLabelText("Department"),
       "10000000-0000-4000-8000-000000000004",
     );
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Semester" }),
+      semesterId,
+    );
     await user.click(screen.getByRole("button", { name: "Create course" }));
     expect(
-      await screen.findByText("CPE 401 — Advanced Design was created."),
+      await screen.findByText("CPE 401 is now available for Semester 1."),
     ).toBeInTheDocument();
     expect(createdDepartmentId).toBe("10000000-0000-4000-8000-000000000004");
   });
@@ -679,28 +705,25 @@ describe("Campus Attendance screens", () => {
     let assignedIds = ["20000000-0000-4000-8000-000000000002"];
     let submittedIds: string[] = [];
     server.use(
-      http.get(
-        `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
-        () =>
-          HttpResponse.json(
-            assignedIds.map((id) => ({
-              id,
-              display_name:
-                id === "20000000-0000-4000-8000-000000000002"
-                  ? "Dr. Ngozi Eze"
-                  : "Dr. Ada Okafor",
-              email:
-                id === "20000000-0000-4000-8000-000000000002"
-                  ? "ngozi.lecturer@campus.example"
-                  : "ada.okafor@example.com",
-            })) satisfies OfferingLecturersResponse,
-          ),
+      http.get(`${apiBaseUrl}/offerings/${offeringId}/lecturers`, () =>
+        HttpResponse.json(
+          assignedIds.map((id) => ({
+            id,
+            display_name:
+              id === "20000000-0000-4000-8000-000000000002"
+                ? "Dr. Ngozi Eze"
+                : "Dr. Ada Okafor",
+            email:
+              id === "20000000-0000-4000-8000-000000000002"
+                ? "ngozi.lecturer@campus.example"
+                : "ada.okafor@example.com",
+          })) satisfies OfferingLecturersResponse,
+        ),
       ),
       http.put(
         `${apiBaseUrl}/offerings/${offeringId}/lecturers`,
         async ({ request }) => {
-          const payload =
-            (await request.json()) as SetOfferingLecturersRequest;
+          const payload = (await request.json()) as SetOfferingLecturersRequest;
           submittedIds = payload.lecturer_ids;
           assignedIds = payload.lecturer_ids;
           return HttpResponse.json({ lecturer_ids: assignedIds });
@@ -718,7 +741,9 @@ describe("Campus Attendance screens", () => {
         name: "Manage lecturers for ENG 301",
       }),
     );
-    expect(await screen.findByText("ngozi.lecturer@campus.example")).toBeInTheDocument();
+    expect(
+      await screen.findByText("ngozi.lecturer@campus.example"),
+    ).toBeInTheDocument();
     await user.type(
       screen.getByLabelText("Lecturer account UUID"),
       "20000000-0000-4000-8000-000000000010",
@@ -740,11 +765,28 @@ describe("Campus Attendance screens", () => {
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
     let submitted: CreateCourseRequest | null = null;
+    let submittedOffering: CreateOfferingRequest | null = null;
+    const semesterId = "30000000-0000-4000-8000-000000000104";
     server.use(
+      http.get(`${apiBaseUrl}/semesters`, () =>
+        HttpResponse.json({
+          items: [{ id: semesterId, name: "Semester 1" }],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies SemestersResponse),
+      ),
       http.post(`${apiBaseUrl}/courses`, async ({ request }) => {
         submitted = (await request.json()) as CreateCourseRequest;
         return HttpResponse.json(
           { id: "30000000-0000-4000-8000-000000000001" },
+          { status: 201 },
+        );
+      }),
+      http.post(`${apiBaseUrl}/offerings`, async ({ request }) => {
+        submittedOffering = (await request.json()) as CreateOfferingRequest;
+        return HttpResponse.json(
+          { id: "30000000-0000-4000-8000-000000000105" },
           { status: 201 },
         );
       }),
@@ -760,10 +802,14 @@ describe("Campus Attendance screens", () => {
       screen.getByLabelText("Description (optional)"),
       "An introduction to cell structure.",
     );
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Semester" }),
+      semesterId,
+    );
     await user.click(screen.getByRole("button", { name: "Create course" }));
 
     expect(
-      await screen.findByText("BIO 201 — Cell Biology was created."),
+      await screen.findByText("BIO 201 is now available for Semester 1."),
     ).toHaveAttribute("role", "status");
     expect(submitted).toEqual({
       department_id: "10000000-0000-4000-8000-000000000004",
@@ -772,6 +818,128 @@ describe("Campus Attendance screens", () => {
       kind: "general",
       description: "An introduction to cell structure.",
       credits: 3,
+    });
+    expect(submittedOffering).toEqual({
+      course_id: "30000000-0000-4000-8000-000000000001",
+      semester_id: semesterId,
+      level: 100,
+      registration_mode: "open",
+      roster_policy: "open",
+      min_attendance_pct: 75,
+      late_counts_as_attended: false,
+    });
+  });
+
+  it("creates an offering and searches for it in the refreshed offerings list", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const courseId = "30000000-0000-4000-8000-000000000101";
+    const semesterId = "30000000-0000-4000-8000-000000000102";
+    let submitted: CreateOfferingRequest | null = null;
+    server.use(
+      http.get(`${apiBaseUrl}/courses`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: courseId,
+              code: "CPE 499",
+              title: "Advanced Systems",
+              department_id: "10000000-0000-4000-8000-000000000004",
+            },
+          ],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies CatalogueListResponse),
+      ),
+      http.get(`${apiBaseUrl}/semesters`, () =>
+        HttpResponse.json({
+          items: [{ id: semesterId, name: "Semester 1" }],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies SemestersResponse),
+      ),
+      http.post(`${apiBaseUrl}/offerings`, async ({ request }) => {
+        submitted = (await request.json()) as CreateOfferingRequest;
+        return HttpResponse.json(
+          { id: "30000000-0000-4000-8000-000000000103" },
+          { status: 201 },
+        );
+      }),
+      http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
+        const query = new URL(request.url).searchParams.get("q") ?? "";
+        const items: SearchOfferingsResponse["items"] = query.includes(
+          "CPE 499",
+        )
+          ? [
+              {
+                offering_id: "30000000-0000-4000-8000-000000000103",
+                course_id: courseId,
+                course_code: "CPE 499",
+                course_title: "Advanced Systems",
+                department_id: "10000000-0000-4000-8000-000000000004",
+                department_name: "Computer Engineering",
+                level: 400,
+                kind: "departmental",
+                registration_mode: "approval",
+                lecturers: [],
+                registration_status: "none",
+                is_registered: false,
+                is_pending: false,
+                semester_id: semesterId,
+                semester: "Semester 1",
+                rank: 1,
+              },
+            ]
+          : [];
+        return HttpResponse.json({
+          items,
+          limit: 200,
+          offset: 0,
+          has_more: false,
+        } satisfies SearchOfferingsResponse);
+      }),
+    );
+    renderApp("/courses", true, "department-admin");
+
+    await screen.findByRole("option", { name: /CPE 499 · Advanced Systems/ });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Course" }),
+      courseId,
+    );
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Semester" }),
+      semesterId,
+    );
+    const levelInput = screen.getByRole("spinbutton", { name: "Level" });
+    await user.clear(levelInput);
+    await user.type(levelInput, "400");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Registration mode" }),
+      "approval",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Add course to semester" }),
+    );
+
+    expect(
+      await screen.findByText("CPE 499 is now available for Semester 1."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", {
+        name: "CPE 499 · Advanced Systems",
+      }),
+    ).toBeInTheDocument();
+    expect(submitted).toEqual({
+      course_id: courseId,
+      semester_id: semesterId,
+      level: 400,
+      registration_mode: "approval",
+      roster_policy: "open",
+      min_attendance_pct: 75,
+      late_counts_as_attended: false,
     });
   });
 

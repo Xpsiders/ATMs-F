@@ -30,10 +30,18 @@ export type SetOfferingLecturersResponse =
   operations["setOfferingLecturers"]["responses"][200]["content"]["application/json"];
 export type DepartmentCatalogueResponse =
   operations["listDepartments"]["responses"][200]["content"]["application/json"];
+export type CatalogueListResponse =
+  operations["listCourses"]["responses"][200]["content"]["application/json"];
+export type CatalogueItem = components["schemas"]["CatalogueItem"];
 export type CreateCourseRequest =
   operations["createCourse"]["requestBody"]["content"]["application/json"];
 export type CreateCourseResponse =
   operations["createCourse"]["responses"][201]["content"]["application/json"];
+export type CreateOfferingRequest =
+  operations["createOffering"]["requestBody"]["content"]["application/json"];
+export type CreateOfferingResponse =
+  | operations["createOffering"]["responses"][201]["content"]["application/json"]
+  | operations["createOffering"]["responses"][202]["content"]["application/json"];
 export type RegistrationResponse =
   operations["registerForOffering"]["responses"][201]["content"]["application/json"];
 export type VenueListResponse =

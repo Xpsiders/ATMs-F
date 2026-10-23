@@ -4,6 +4,7 @@ import type {
   CurrentUser,
   CreateAcademicSessionRequest,
   CreateCourseRequest,
+  CreateOfferingRequest,
   CreateRoleAssignmentRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
@@ -27,6 +28,7 @@ import {
 import {
   createDemoAcademicSession,
   createDemoCourse,
+  createDemoOffering,
   createDemoSemester,
   createDemoVenue,
   createDemoSession,
@@ -265,15 +267,36 @@ export const handlers = [
       ? HttpResponse.json(listDemoCourses())
       : apiError(403, "forbidden", "This account cannot list courses.");
   }),
+  http.post(`${apiBaseUrl}/offerings`, async ({ request }) => {
+    const account = getMockSession();
+    if (
+      !account ||
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+    )
+      return apiError(
+        403,
+        "forbidden",
+        "This account cannot create offerings.",
+      );
+    const payload = (await request.json()) as CreateOfferingRequest;
+    const offering = createDemoOffering(payload);
+    return offering
+      ? HttpResponse.json(offering, { status: 201 })
+      : apiError(
+          404,
+          "resource_not_found",
+          "The selected course or semester was not found.",
+        );
+  }),
   http.get(`${apiBaseUrl}/offerings/:id/lecturers`, ({ params }) => {
     const account = getMockSession();
     if (
       !account ||
-      ![
-        "department-admin",
-        "faculty-admin",
-        "institution-admin",
-      ].includes(account.role)
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
     )
       return apiError(403, "forbidden", "This account cannot manage offering lecturers.");
     return HttpResponse.json(
