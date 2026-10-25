@@ -22,7 +22,11 @@ import {
   setUnauthorizedHandler,
 } from "@/shared/lib/apiClient";
 import { ApiError, formatApiError } from "@/api/errors";
-import type { CurrentUser } from "@/api/contracts";
+import type {
+  AcademicSessionsResponse,
+  CurrentUser,
+  SemestersResponse,
+} from "@/api/contracts";
 import { Icon, NAV, NavLink, SimplePage, Splash } from "@/shared/ui/primitives";
 import { AuthFlow, Login } from "@/features/auth/pages";
 import {
@@ -99,9 +103,19 @@ const AdminRoleAssignment = lazy(() =>
     default: module.RoleAssignment,
   })),
 );
+const AdminTeachingRequests = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.TeachingRequestsReview,
+  })),
+);
 const AdminCoursesAndOfferings = lazy(() =>
   import("@/features/admin/pages").then((module) => ({
     default: module.CoursesAndOfferings,
+  })),
+);
+const ScannerAdministration = lazy(() =>
+  import("@/features/admin/pages").then((module) => ({
+    default: module.ScannerAdministration,
   })),
 );
 
@@ -196,6 +210,101 @@ const authPaths = [
   "/reset-password",
   "/change-password",
 ];
+
+function readStringField(item: unknown, key: string): string | undefined {
+  if (item && typeof item === "object" && key in item) {
+    const value = (item as Record<string, unknown>)[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+function isCurrentFlag(item: unknown): boolean {
+  return Boolean(
+    item &&
+      typeof item === "object" &&
+      (item as Record<string, unknown>).current === true,
+  );
+}
+
+function withinRange(item: unknown, today: string): boolean {
+  const start = readStringField(item, "starts_on");
+  const end = readStringField(item, "ends_on");
+  return Boolean(start && end && start <= today && today <= end);
+}
+
+function byStartsOnDesc(a: unknown, b: unknown): number {
+  return (readStringField(b, "starts_on") ?? "").localeCompare(
+    readStringField(a, "starts_on") ?? "",
+  );
+}
+
+/**
+ * Shows the active academic session and semester from the backend. The current
+ * session is the one flagged `current`, else the one whose date range covers
+ * today, else the most recent; the current semester is picked the same way
+ * within that session.
+ */
+function TermPill() {
+  const [term, setTerm] = useState<{
+    session?: string;
+    semester?: string;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      apiRequest<AcademicSessionsResponse>(
+        "/academic-sessions?limit=200&offset=0",
+      ),
+      apiRequest<SemestersResponse>("/semesters?limit=200&offset=0"),
+    ])
+      .then(([sessionsResponse, semestersResponse]) => {
+        if (!active) return;
+        const today = new Date().toISOString().slice(0, 10);
+        const sessions = sessionsResponse.items ?? [];
+        const semesters = semestersResponse.items ?? [];
+        const session =
+          sessions.find((item) => isCurrentFlag(item)) ??
+          sessions.find((item) => withinRange(item, today)) ??
+          [...sessions].sort(byStartsOnDesc)[0];
+        const scoped = session
+          ? semesters.filter(
+              (item) =>
+                readStringField(item, "academic_session_id") === session.id,
+            )
+          : semesters;
+        const pool = scoped.length ? scoped : semesters;
+        const semester =
+          pool.find((item) => withinRange(item, today)) ??
+          [...pool].sort(byStartsOnDesc)[0];
+        const sessionName = session ? readStringField(session, "name") : undefined;
+        const semesterName = semester
+          ? readStringField(semester, "name")
+          : undefined;
+        setTerm(sessionName || semesterName ? { session: sessionName, semester: semesterName } : null);
+      })
+      .catch(() => {
+        if (active) setTerm(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!term) return null;
+  return (
+    <div className="term-pill">
+      <span className="term-dot" />
+      {term.session ?? "Current term"}
+      {term.semester && (
+        <>
+          {" "}
+          <span className="term-separator">·</span> {term.semester}
+        </>
+      )}
+    </div>
+  );
+}
 
 export function App() {
   const mockMode = isMockMode();
@@ -309,6 +418,7 @@ export function App() {
           "/lecturer/live": "Live session",
           "/lecturer/report": "Session report",
           "/admin": "Administration",
+          "/scanners": "Scanners",
           "/admin/import": "Import students",
           "/profile": "My profile",
           "/login": "Welcome back",
@@ -448,6 +558,12 @@ export function App() {
                 icon="report"
                 current={activePath}
               />
+              <NavLink
+                label="Scanners"
+                path="/scanners"
+                icon="settings"
+                current={activePath}
+              />
             </>
           ) : (
             <>
@@ -472,6 +588,12 @@ export function App() {
                 current={activePath}
               />
               <NavLink
+                label="Teaching requests"
+                path="/admin/teaching-requests"
+                icon="courses"
+                current={activePath}
+              />
+              <NavLink
                 label="Venues"
                 path="/admin/venues"
                 icon="home"
@@ -493,6 +615,12 @@ export function App() {
                 label="Courses & offerings"
                 path="/courses"
                 icon="courses"
+                current={activePath}
+              />
+              <NavLink
+                label="Scanners"
+                path="/scanners"
+                icon="settings"
                 current={activePath}
               />
               <NavLink
@@ -593,10 +721,7 @@ export function App() {
             </nav>
           )}
           <div className="topbar-actions">
-            <div className="term-pill">
-              <span className="term-dot" />
-              2024 / 2025 <span className="term-separator">·</span> Semester 2
-            </div>
+            <TermPill />
             {mockMode && (
               <button
                 className="text-button demo-reset-topbar"
@@ -877,6 +1002,32 @@ export function App() {
                     allowedRoles={["department-admin", "institution-admin"]}
                   >
                     <AdminRoleAssignment />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/admin/teaching-requests"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={["department-admin", "institution-admin"]}
+                  >
+                    <AdminTeachingRequests />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/scanners"
+                element={
+                  <RoleGuard
+                    role={role}
+                    allowedRoles={[
+                      "lecturer",
+                      "department-admin",
+                      "institution-admin",
+                    ]}
+                  >
+                    <ScannerAdministration />
                   </RoleGuard>
                 }
               />

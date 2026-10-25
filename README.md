@@ -12,13 +12,13 @@ pnpm install
 pnpm dev
 ```
 
-Copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL`, `VITE_APP_NAME` and `VITE_USE_MOCKS`. Never put secrets in browser environment variables. `pnpm dev:mock` starts the local demonstration experience.
+Copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL`, `VITE_APP_NAME`, `VITE_USE_MOCKS=false`, and `VITE_INSTITUTION_ID` to the institution UUID used by the backend. The institution ID is an identifier, not a secret; never put credentials or tokens in browser environment variables. `pnpm dev:mock` starts the local demonstration experience.
 
 ## Commands
 
 `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, `pnpm run test:coverage`, `pnpm run build`, `pnpm run gen:api`.
 
-The backend publishes its OpenAPI document in the sibling `attendance-api` repository. `pnpm run sync:api` copies `../attendance-api/api/openapi.yaml`, then regenerates frontend API types. Set `API_SPEC_PATH` to use another source path. Generated `src/api/schema.d.ts` is ignored and regenerated; `api/openapi.yaml` is the tracked local copy.
+The backend publishes its OpenAPI document in a sibling repository. `pnpm run sync:api` copies `../ATMs/api/openapi.yaml` in this workspace, then regenerates frontend API types. Set `API_SPEC_PATH` to use another source path (relative paths resolve from the current working directory). Generated `src/api/schema.d.ts` is ignored and regenerated; `api/openapi.yaml` is the tracked local copy.
 
 For local development, the backend's `ALLOWED_ORIGIN` must equal the web app origin (`http://localhost:5173`). API requests include credentials so the browser sends the backend-managed httpOnly refresh cookie.
 

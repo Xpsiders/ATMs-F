@@ -42,6 +42,29 @@ export type CreateOfferingRequest =
 export type CreateOfferingResponse =
   | operations["createOffering"]["responses"][201]["content"]["application/json"]
   | operations["createOffering"]["responses"][202]["content"]["application/json"];
+export type DirectoryUsersResponse =
+  operations["listDirectoryUsers"]["responses"][200]["content"]["application/json"];
+export type DirectoryUser = DirectoryUsersResponse["items"][number];
+export type DirectoryUsersQuery =
+  operations["listDirectoryUsers"]["parameters"]["query"];
+export type DevicesResponse =
+  operations["listDevices"]["responses"][200]["content"]["application/json"];
+export type DeviceListItem = DevicesResponse["items"][number];
+export type ProvisionDeviceRequest =
+  operations["provisionDevice"]["requestBody"]["content"]["application/json"];
+export type ProvisionedDevice =
+  operations["provisionDevice"]["responses"][201]["content"]["application/json"];
+export type DevicePairingCode =
+  operations["regenerateDevicePairingCode"]["responses"][201]["content"]["application/json"];
+export type EnqueueEnrolmentRequest =
+  operations["enqueueDeviceEnrolment"]["requestBody"]["content"]["application/json"];
+export type EnqueueEnrolmentResponse =
+  operations["enqueueDeviceEnrolment"]["responses"][201]["content"]["application/json"];
+export type TeachingRequestsResponse =
+  operations["listTeachingRequests"]["responses"][200]["content"]["application/json"];
+export type TeachingRequest = TeachingRequestsResponse["items"][number];
+export type ReviewTeachingRequestRequest =
+  operations["reviewTeachingRequest"]["requestBody"]["content"]["application/json"];
 export type RegistrationResponse =
   operations["registerForOffering"]["responses"][201]["content"]["application/json"];
 export type VenueListResponse =

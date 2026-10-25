@@ -18,6 +18,12 @@ export const API_ERRORS: Record<string, ApiErrorPresentation> = {
   venue_has_open_session: { title: "Venue is in use", message: "Another class already has an active session at this venue.", severity: "warning", action: "Choose another venue." },
   no_active_session: { title: "No active class", message: "There is no open attendance session for this class.", severity: "warning", action: "Refresh the class list." },
   device_key_revoked: { title: "Device key revoked", message: "This scanner can no longer connect.", severity: "error", action: "Ask an administrator to register the scanner again." },
+  device_scope_denied: { title: "You can't manage this scanner", message: "This scanner is outside your administrator or teaching scope.", severity: "warning", action: "Ask an administrator with authority over the venue." },
+  device_not_found: { title: "Scanner not found", message: "This scanner no longer exists or has been removed.", severity: "warning", action: "Refresh the scanner list." },
+  student_not_found: { title: "Student not found", message: "That student record could not be found in your scope.", severity: "warning", action: "Pick another student from the directory." },
+  invalid_request: { title: "Check the details", message: "Some required information is missing or invalid.", severity: "error", action: "Review the form and try again." },
+  course_has_offerings: { title: "Course still has offerings", message: "Remove this course's offerings before deleting it.", severity: "warning", action: "Delete its offerings first, then try again." },
+  course_not_found: { title: "Course not found", message: "This course no longer exists or has been removed.", severity: "warning", action: "Refresh the course list." },
   rate_limited: { title: "Please slow down", message: "Too many requests were made. Try again when the cooldown ends.", severity: "warning", action: "Wait for the cooldown." },
 };
 

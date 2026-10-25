@@ -6,6 +6,7 @@ import {
   mockRefreshResponse,
   startMockSession,
 } from "./auth";
+import { restoreSession } from "@/shared/lib/apiClient";
 
 describe("mock session", () => {
   afterEach(() => {
@@ -28,4 +29,21 @@ describe("mock session", () => {
     expect(getMockSession()?.role).toBe("lecturer");
     expect(sessionStorage.getItem("campuscheck-mock-role")).toBe("lecturer");
   });
+
+  it("restores only after a mock login and rejects refresh after reset", async () => {
+    vi.stubEnv("VITE_USE_MOCKS", "true");
+    clearMockSession();
+
+    await expect(restoreSession()).resolves.toBe(false);
+    expect(mockRefreshResponse().status).toBe(401);
+
+    startMockSession("institution-admin");
+    await expect(restoreSession()).resolves.toBe(true);
+    expect(mockRefreshResponse().status).toBe(204);
+
+    clearMockSession();
+    await expect(restoreSession()).resolves.toBe(false);
+    expect(mockRefreshResponse().status).toBe(401);
+  });
+
 });

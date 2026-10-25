@@ -8,9 +8,13 @@ import type {
   CreateRoleAssignmentRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
+  DirectoryUsersQuery,
+  EnqueueEnrolmentRequest,
+  ProvisionDeviceRequest,
   RequestPasswordReset,
   ResetPasswordRequest,
   ReviewSignupRequest,
+  ReviewTeachingRequestRequest,
   SignupRequestsResponse,
   StaffImportPreview,
   SearchOfferingsQuery,
@@ -28,6 +32,8 @@ import {
 import {
   createDemoAcademicSession,
   createDemoCourse,
+  deleteDemoCourse,
+  deleteDemoOffering,
   createDemoOffering,
   createDemoSemester,
   createDemoVenue,
@@ -36,6 +42,12 @@ import {
   deleteDemoAcademicSession,
   deleteDemoSemester,
   endDemoSession,
+  enqueueDemoEnrolment,
+  listDemoDevices,
+  provisionDemoDevice,
+  regenerateDemoPairingCode,
+  revokeDemoDevice,
+  rotateDemoDeviceKey,
   getDemoSession,
   getDemoSessionCode,
   getDemoState,
@@ -50,9 +62,12 @@ import {
   listDemoStudentAttendance,
   listDemoStudentCourses,
   listDemoStudentTimetable,
+  listDemoTeachingRequests,
   listDemoVenues,
   recordDemoCheckIn,
+  reviewDemoTeachingRequest,
   registerDemoOffering,
+  searchDemoDirectoryUsers,
   searchDemoOfferings,
   setDemoSessionFixedCode,
   setDemoOfferingLecturers,
@@ -68,6 +83,24 @@ function apiError(status: number, code: string, message: string) {
     { error: { code, message, details: {} } },
     { status },
   );
+}
+
+const DEVICE_SCOPE_ROLES = [
+  "department-admin",
+  "faculty-admin",
+  "institution-admin",
+  "lecturer",
+];
+
+function denyDeviceScope() {
+  const account = getMockSession();
+  if (!account || !DEVICE_SCOPE_ROLES.includes(account.role))
+    return apiError(
+      403,
+      "device_scope_denied",
+      "This account cannot manage scanners in this scope.",
+    );
+  return null;
 }
 
 const DEMO_SIGNUP_REQUESTS: NonNullable<SignupRequestsResponse["items"]> = [];
@@ -115,6 +148,134 @@ export const handlers = [
         "Student details are required for approval.",
       );
     return new HttpResponse(null, { status: 200 });
+  }),
+  http.get(`${apiBaseUrl}/users`, ({ request }) => {
+    const account = getMockSession();
+    if (
+      !account ||
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+    )
+      return apiError(
+        403,
+        "forbidden",
+        "This account cannot read the user directory.",
+      );
+    const url = new URL(request.url);
+    const role = url.searchParams.get("role");
+    const query: DirectoryUsersQuery = {
+      q: url.searchParams.get("q") ?? undefined,
+      role: (role as NonNullable<DirectoryUsersQuery>["role"]) ?? undefined,
+      department_id: url.searchParams.get("department_id") ?? undefined,
+      limit: url.searchParams.has("limit")
+        ? Number(url.searchParams.get("limit"))
+        : undefined,
+      offset: url.searchParams.has("offset")
+        ? Number(url.searchParams.get("offset"))
+        : undefined,
+    };
+    return HttpResponse.json(searchDemoDirectoryUsers(query));
+  }),
+  http.get(`${apiBaseUrl}/teaching-requests`, () => {
+    const account = getMockSession();
+    if (
+      !account ||
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+    )
+      return apiError(
+        403,
+        "forbidden",
+        "This account cannot review teaching requests.",
+      );
+    return HttpResponse.json(listDemoTeachingRequests());
+  }),
+  http.patch(
+    `${apiBaseUrl}/teaching-requests/:id`,
+    async ({ params, request }) => {
+      const account = getMockSession();
+      if (
+        !account ||
+        !["department-admin", "faculty-admin", "institution-admin"].includes(
+          account.role,
+        )
+      )
+        return apiError(
+          403,
+          "forbidden",
+          "This account cannot review teaching requests.",
+        );
+      const payload = (await request.json()) as ReviewTeachingRequestRequest;
+      const result = reviewDemoTeachingRequest(String(params.id), payload.status);
+      return result
+        ? HttpResponse.json(result)
+        : apiError(404, "resource_not_found", "Teaching request was not found.");
+    },
+  ),
+  http.get(`${apiBaseUrl}/devices`, ({ request }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    const url = new URL(request.url);
+    const limit = url.searchParams.has("limit")
+      ? Number(url.searchParams.get("limit"))
+      : 50;
+    const offset = url.searchParams.has("offset")
+      ? Number(url.searchParams.get("offset"))
+      : 0;
+    return HttpResponse.json(listDemoDevices(limit, offset));
+  }),
+  http.post(`${apiBaseUrl}/devices`, async ({ request }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    const payload = (await request.json()) as ProvisionDeviceRequest;
+    if (!payload.venue_id || !payload.name?.trim())
+      return apiError(
+        400,
+        "invalid_request",
+        "A venue and scanner name are required.",
+      );
+    return HttpResponse.json(provisionDemoDevice(payload), { status: 201 });
+  }),
+  http.post(`${apiBaseUrl}/devices/:id/pairing-code`, ({ params }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    const result = regenerateDemoPairingCode(String(params.id));
+    return result
+      ? HttpResponse.json(result, { status: 201 })
+      : apiError(404, "device_not_found", "Scanner was not found.");
+  }),
+  http.post(`${apiBaseUrl}/devices/:id/rotate-key`, ({ params }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    const result = rotateDemoDeviceKey(String(params.id));
+    return result
+      ? HttpResponse.json(result, { status: 201 })
+      : apiError(404, "device_not_found", "Scanner was not found.");
+  }),
+  http.delete(`${apiBaseUrl}/devices/:id`, ({ params }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    return revokeDemoDevice(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : apiError(404, "device_not_found", "Scanner was not found.");
+  }),
+  http.post(`${apiBaseUrl}/devices/:id/enrolments`, async ({ params, request }) => {
+    const denied = denyDeviceScope();
+    if (denied) return denied;
+    const payload = (await request.json()) as EnqueueEnrolmentRequest;
+    if (!payload.student_record_id)
+      return apiError(400, "invalid_request", "A student is required.");
+    const result = enqueueDemoEnrolment(
+      String(params.id),
+      payload.student_record_id,
+    );
+    if (result === "device_not_found")
+      return apiError(404, "device_not_found", "Scanner was not found.");
+    if (result === "student_not_found")
+      return apiError(404, "student_not_found", "Student record was not found.");
+    return HttpResponse.json(result, { status: 201 });
   }),
   http.post(`${apiBaseUrl}/role-assignments`, async ({ request }) => {
     const payload = (await request.json()) as CreateRoleAssignmentRequest;
@@ -228,9 +389,13 @@ export const handlers = [
   }),
   http.get(`${apiBaseUrl}/me/offerings`, () => {
     const account = getMockSession();
-    if (!account || account.role !== "lecturer")
-      return apiError(403, "not_a_lecturer", "This endpoint is for lecturers.");
-    return HttpResponse.json(listDemoOfferings(account.name));
+    if (!account)
+      return apiError(401, "unauthorized", "Sign in is required.");
+    // Lecturers see the offerings they teach; everyone else (e.g. students
+    // browsing classes) gets the catalogue offerings visible in their scope.
+    return HttpResponse.json(
+      listDemoOfferings(account.role === "lecturer" ? account.name : undefined),
+    );
   }),
   http.get(`${apiBaseUrl}/departments`, () =>
     getMockSession()
@@ -267,6 +432,26 @@ export const handlers = [
       ? HttpResponse.json(listDemoCourses())
       : apiError(403, "forbidden", "This account cannot list courses.");
   }),
+  http.delete(`${apiBaseUrl}/courses/:id`, ({ params }) => {
+    const account = getMockSession();
+    if (
+      !account ||
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+    )
+      return apiError(403, "forbidden", "This account cannot manage this course.");
+    const result = deleteDemoCourse(String(params.id));
+    if (result === "not_found")
+      return apiError(404, "course_not_found", "Course was not found.");
+    if (result === "has_offerings")
+      return apiError(
+        409,
+        "course_has_offerings",
+        "This course still has offerings and cannot be deleted.",
+      );
+    return new HttpResponse(null, { status: 204 });
+  }),
   http.post(`${apiBaseUrl}/offerings`, async ({ request }) => {
     const account = getMockSession();
     if (
@@ -289,6 +474,23 @@ export const handlers = [
           "resource_not_found",
           "The selected course or semester was not found.",
         );
+  }),
+  http.delete(`${apiBaseUrl}/offerings/:id`, ({ params }) => {
+    const account = getMockSession();
+    if (
+      !account ||
+      !["department-admin", "faculty-admin", "institution-admin"].includes(
+        account.role,
+      )
+    )
+      return apiError(
+        403,
+        "forbidden",
+        "This account cannot manage this offering.",
+      );
+    return deleteDemoOffering(String(params.id))
+      ? new HttpResponse(null, { status: 204 })
+      : apiError(404, "resource_not_found", "Offering was not found.");
   }),
   http.get(`${apiBaseUrl}/offerings/:id/lecturers`, ({ params }) => {
     const account = getMockSession();

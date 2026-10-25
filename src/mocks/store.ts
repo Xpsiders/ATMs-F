@@ -7,6 +7,15 @@ import type {
   CreateOfferingRequest,
   CreateSemesterRequest,
   CreateVenueRequest,
+  DeviceListItem,
+  DevicePairingCode,
+  DevicesResponse,
+  DirectoryUser,
+  DirectoryUsersQuery,
+  DirectoryUsersResponse,
+  EnqueueEnrolmentResponse,
+  ProvisionDeviceRequest,
+  ProvisionedDevice,
   OfferingLecturersResponse,
   OfferingsResponse,
   PendingRegistrationsResponse,
@@ -19,6 +28,8 @@ import type {
   StudentTimetableResponse,
   StartSessionRequest,
   SemestersResponse,
+  TeachingRequestsResponse,
+  ReviewTeachingRequestRequest,
   UpdateAcademicSessionRequest,
   UpdateSemesterRequest,
   UpdateVenueRequest,
@@ -101,6 +112,8 @@ export type DemoState = {
   attendance: DemoAttendance[];
   enrollments: string[];
   pendingRegistrations: string[];
+  teachingRequests: TeachingRequestsResponse["items"];
+  devices: DeviceListItem[];
   auditEvents: string[];
 };
 
@@ -124,10 +137,49 @@ export const DEMO_VENUES: VenueListResponse["items"] = [
 ];
 const INITIAL_DEMO_VENUES = structuredClone(DEMO_VENUES);
 let demoVenues = structuredClone(INITIAL_DEMO_VENUES);
-let demoAcademicSessions: components["schemas"]["CatalogueItem"][] = [];
-let demoSemesters: components["schemas"]["CatalogueItem"][] = [];
-let demoCourses: components["schemas"]["CatalogueItem"][] = [];
+const DEMO_SESSION_ID = "60000000-0000-4000-8000-000000000001";
+const INITIAL_ACADEMIC_SESSIONS: components["schemas"]["CatalogueItem"][] = [
+  {
+    id: DEMO_SESSION_ID,
+    name: "2026 / 2027",
+    starts_on: "2026-09-01",
+    ends_on: "2027-07-31",
+    current: true,
+  },
+];
+const INITIAL_SEMESTERS: components["schemas"]["CatalogueItem"][] = [
+  {
+    id: "60000000-0000-4000-8000-000000000011",
+    academic_session_id: DEMO_SESSION_ID,
+    name: "Semester 1",
+    starts_on: "2026-09-01",
+    ends_on: "2027-01-31",
+  },
+  {
+    id: "60000000-0000-4000-8000-000000000012",
+    academic_session_id: DEMO_SESSION_ID,
+    name: "Semester 2",
+    starts_on: "2027-02-01",
+    ends_on: "2027-07-31",
+  },
+];
+let demoAcademicSessions = structuredClone(INITIAL_ACADEMIC_SESSIONS);
+let demoSemesters = structuredClone(INITIAL_SEMESTERS);
+// A catalogue course with no offering, so it can be deleted; the courses derived
+// from seeded offerings all have an offering and return 409 instead.
+const INITIAL_DEMO_COURSES: components["schemas"]["CatalogueItem"][] = [
+  {
+    id: "70000000-0000-4000-8000-000000000001",
+    department_id: "10000000-0000-4000-8000-000000000004",
+    code: "CSC 110",
+    title: "Introduction to Computing",
+    kind: "departmental",
+  },
+];
+let demoCourses = structuredClone(INITIAL_DEMO_COURSES);
 const demoOfferingLecturers = new Map<string, OfferingLecturersResponse>();
+// Next fingerprint slot assigned per device for enrolment (demo-only, reset-cleared).
+const demoDeviceSlots = new Map<string, number>();
 const DEMO_LECTURERS: OfferingLecturersResponse = [
   {
     id: "20000000-0000-4000-8000-000000000002",
@@ -338,6 +390,54 @@ const INITIAL_DEMO_STATE: DemoState = {
   ],
   enrollments: ["ENG 301", "GST 201"],
   pendingRegistrations: [],
+  teachingRequests: [
+    {
+      id: "30000000-0000-4000-8000-000000000001",
+      lecturer_id: "20000000-0000-4000-8000-000000000002",
+      lecturer_name: "Dr. Ngozi Eze",
+      course_id: "10000000-0000-4000-8000-000000000305",
+      course_code: "CPE 305",
+      course_title: "Computer Architecture",
+      semester_id: "20000000-0000-4000-8000-000000000050",
+      registration_mode: "approval",
+      roster_policy: "registered_only",
+      min_attendance_pct: 75,
+      status: "pending",
+      created_at: "2026-10-20T09:00:00Z",
+    },
+  ],
+  devices: [
+    {
+      id: "40000000-0000-4000-8000-000000000001",
+      name: "LT 2 entrance scanner",
+      venue_id: "3f2b8c1e-5a7d-4c1b-9e2a-8d6f4a1b7c90",
+      venue_name: "LT 2",
+      department_id: "10000000-0000-4000-8000-000000000004",
+      status: "active",
+      last_seen_at: "2026-10-24T07:40:00Z",
+      paired_at: "2026-09-02T10:15:00Z",
+      firmware_version: "1.4.2",
+      battery_percent: 82,
+      pending_queue_depth: 0,
+      status_reported_at: "2026-10-24T07:40:00Z",
+      pairing_code_expires_at: null,
+    },
+    {
+      id: "40000000-0000-4000-8000-000000000002",
+      name: "Room 14 scanner",
+      venue_id: "5f8b1042-7c3d-4b6e-a9f1-2d8c6e0a3b57",
+      venue_name: "Room 14",
+      department_id: "10000000-0000-4000-8000-000000000004",
+      status: "unpaired",
+      last_seen_at: null,
+      paired_at: null,
+      firmware_version: null,
+      battery_percent: null,
+      pending_queue_depth: null,
+      status_reported_at: null,
+      pairing_code_expires_at: "2026-11-30T23:59:00Z",
+    },
+  ],
   auditEvents: [],
 };
 
@@ -363,11 +463,55 @@ export function subscribeDemoState(listener: () => void): () => void {
 export function resetDemoData(): void {
   demoState = structuredClone(INITIAL_DEMO_STATE);
   demoVenues = structuredClone(INITIAL_DEMO_VENUES);
-  demoAcademicSessions = [];
-  demoSemesters = [];
-  demoCourses = [];
+  demoAcademicSessions = structuredClone(INITIAL_ACADEMIC_SESSIONS);
+  demoSemesters = structuredClone(INITIAL_SEMESTERS);
+  demoCourses = structuredClone(INITIAL_DEMO_COURSES);
   demoOfferingLecturers.clear();
+  demoDeviceSlots.clear();
   listeners.forEach((listener) => listener());
+}
+
+// Shared browse-card shape for an offering, used by both the student directory
+// list (GET /me/offerings) and the text search (GET /offerings/search).
+function demoOfferingCard(
+  offering: DemoOffering,
+): Omit<SearchOfferingsResponse["items"][number], "rank"> {
+  const pending = demoState.pendingRegistrations.includes(offering.code);
+  const registered =
+    demoState.enrollments.includes(offering.code) && !pending;
+  return {
+    offering_id: offering.id,
+    course_id: offering.courseId ?? offering.id,
+    course_code: offering.code,
+    course_title: offering.title,
+    code: offering.code,
+    title: offering.title,
+    department_id: demoDepartmentId(offering.department),
+    department_name: offering.department,
+    level: Number.parseInt(offering.level, 10),
+    kind: offering.kind === "General" ? "general" : "departmental",
+    registration_mode:
+      offering.registration === "Auto"
+        ? "auto"
+        : offering.registration === "Approval"
+          ? "approval"
+          : offering.registration === "Closed"
+            ? "closed"
+            : "open",
+    lecturers: listDemoOfferingLecturers(offering.id).map(
+      ({ display_name }) => display_name,
+    ),
+    registration_status: pending
+      ? "pending"
+      : registered
+        ? "approved"
+        : "none",
+    is_registered: registered,
+    is_pending: pending,
+    semester_id:
+      offering.semesterId ?? "10000000-0000-4000-8000-000000000002",
+    semester: offering.semesterName ?? "Semester 2",
+  };
 }
 
 export function listDemoOfferings(lecturerName?: string): OfferingsResponse {
@@ -377,12 +521,12 @@ export function listDemoOfferings(lecturerName?: string): OfferingsResponse {
       )
     : demoState.offerings;
   return {
-    items: offerings.map(({ id, code, title }) => ({
-      id,
-      course_code: code,
-      course_title: title,
+    items: offerings.map((offering) => ({
+      ...demoOfferingCard(offering),
+      id: offering.id,
       session_open: demoState.sessions.some(
-        (session) => session.offeringId === id && session.state === "live",
+        (session) =>
+          session.offeringId === offering.id && session.state === "live",
       ),
       next_timetable_slot: null,
     })),
@@ -416,6 +560,49 @@ export function createDemoCourse(
   };
   demoCourses = [...demoCourses, course];
   return course;
+}
+
+export function deleteDemoCourse(
+  id: string,
+): "deleted" | "has_offerings" | "not_found" {
+  const exists = listDemoCourses().items.some((course) => course.id === id);
+  if (!exists) return "not_found";
+  const hasOfferings = demoState.offerings.some(
+    (offering) => (offering.courseId ?? offering.id) === id,
+  );
+  if (hasOfferings) return "has_offerings";
+  demoCourses = demoCourses.filter((course) => course.id !== id);
+  return "deleted";
+}
+
+export function deleteDemoOffering(id: string): boolean {
+  const offering = demoState.offerings.find((item) => item.id === id);
+  if (!offering) return false;
+  const courseId = offering.courseId ?? offering.id;
+  const courseStillOffered = demoState.offerings.some(
+    (item) => item.id !== id && (item.courseId ?? item.id) === courseId,
+  );
+  updateDemoState((current) => ({
+    ...current,
+    offerings: current.offerings.filter((item) => item.id !== id),
+  }));
+  demoOfferingLecturers.delete(id);
+  // Keep the (now offering-free) course in the catalogue so it can still be
+  // deleted on its own — mirroring the backend, where courses and offerings
+  // are separate records.
+  if (!courseStillOffered && !demoCourses.some((item) => item.id === courseId)) {
+    demoCourses = [
+      ...demoCourses,
+      {
+        id: courseId,
+        department_id: demoDepartmentId(offering.department),
+        code: offering.code,
+        title: offering.title,
+        kind: offering.kind === "General" ? "general" : "departmental",
+      },
+    ];
+  }
+  return true;
 }
 
 export function listDemoCourses(): components["schemas"]["PagedCatalogueItems"] {
@@ -816,6 +1003,371 @@ export function listDemoPendingRegistrations(): PendingRegistrationsResponse {
   };
 }
 
+const DEPARTMENT_ID_COMPUTER = "10000000-0000-4000-8000-000000000004";
+const DEPARTMENT_ID_ELECTRICAL = "10000000-0000-4000-8000-000000000005";
+const DEPARTMENT_ID_GENERAL = "10000000-0000-4000-8000-000000000006";
+
+function demoLecturer(
+  id: string,
+  displayName: string,
+  email: string,
+  departmentId: string,
+): DirectoryUser {
+  return {
+    id,
+    display_name: displayName,
+    email,
+    roles: [
+      { role: "lecturer", scope_type: "department", scope_id: departmentId },
+    ],
+  };
+}
+
+function demoStudentUser(
+  id: string,
+  displayName: string,
+  email: string,
+  departmentId: string,
+): DirectoryUser {
+  return {
+    id,
+    display_name: displayName,
+    email,
+    roles: [
+      { role: "student", scope_type: "department", scope_id: departmentId },
+    ],
+  };
+}
+
+const DEMO_DIRECTORY_USERS: DirectoryUser[] = [
+  // Computer Engineering
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000002",
+    "Dr. Ngozi Eze",
+    "ngozi.eze@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000101",
+    "Mr. Chidi Obi",
+    "chidi.obi@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000102",
+    "Prof. Ada Nwosu",
+    "ada.nwosu@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000103",
+    "Dr. Amara Okafor",
+    "amara.okafor@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000104",
+    "Engr. Blessing Afolabi",
+    "blessing.afolabi@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  // Electrical Engineering
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000105",
+    "Dr. Yusuf Bello",
+    "yusuf.bello@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000106",
+    "Engr. Funke Adeyemi",
+    "funke.adeyemi@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000107",
+    "Dr. Ibrahim Sani",
+    "ibrahim.sani@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000108",
+    "Dr. Chioma Nwachukwu",
+    "chioma.nwachukwu@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000109",
+    "Engr. Tobi Ogunleye",
+    "tobi.ogunleye@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  // General Studies
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000110",
+    "Dr. Tunde Bello",
+    "tunde.bello@campus.example",
+    DEPARTMENT_ID_GENERAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000111",
+    "Dr. Grace Eshiet",
+    "grace.eshiet@campus.example",
+    DEPARTMENT_ID_GENERAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000112",
+    "Mr. Samuel Johnson",
+    "samuel.johnson@campus.example",
+    DEPARTMENT_ID_GENERAL,
+  ),
+  demoLecturer(
+    "20000000-0000-4000-8000-000000000113",
+    "Dr. Hauwa Abdullahi",
+    "hauwa.abdullahi@campus.example",
+    DEPARTMENT_ID_GENERAL,
+  ),
+  // Students (used by the scanner enrolment picker, GET /users?role=student)
+  demoStudentUser(
+    "50000000-0000-4000-8000-000000000001",
+    "Amara Okafor",
+    "amara.student@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoStudentUser(
+    "50000000-0000-4000-8000-000000000002",
+    "Zara Mohammed",
+    "zara.mohammed@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoStudentUser(
+    "50000000-0000-4000-8000-000000000003",
+    "Ifeoma Obi",
+    "ifeoma.obi@campus.example",
+    DEPARTMENT_ID_COMPUTER,
+  ),
+  demoStudentUser(
+    "50000000-0000-4000-8000-000000000004",
+    "Tunde Adebayo",
+    "tunde.adebayo@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+  demoStudentUser(
+    "50000000-0000-4000-8000-000000000005",
+    "Daniel Eze",
+    "daniel.eze@campus.example",
+    DEPARTMENT_ID_ELECTRICAL,
+  ),
+];
+
+export function searchDemoDirectoryUsers(
+  query: DirectoryUsersQuery,
+): DirectoryUsersResponse {
+  const q = query?.q?.trim().toLowerCase() ?? "";
+  const role = query?.role;
+  const departmentId = query?.department_id;
+  const limit = query?.limit ?? 50;
+  const offset = query?.offset ?? 0;
+  const matches = DEMO_DIRECTORY_USERS.filter((user) => {
+    if (q && !`${user.display_name} ${user.email}`.toLowerCase().includes(q))
+      return false;
+    if (role && !user.roles?.some((entry) => entry.role === role)) return false;
+    if (
+      departmentId &&
+      !user.roles?.some((entry) => entry.scope_id === departmentId)
+    )
+      return false;
+    return true;
+  });
+  const page = matches.slice(offset, offset + limit);
+  return {
+    items: page,
+    limit,
+    offset,
+    has_more: offset + page.length < matches.length,
+  };
+}
+
+export function listDemoTeachingRequests(): TeachingRequestsResponse {
+  const items = demoState.teachingRequests;
+  return { items, limit: 200, offset: 0, has_more: false };
+}
+
+export function reviewDemoTeachingRequest(
+  id: string,
+  status: ReviewTeachingRequestRequest["status"],
+): { id: string; status: string; offering_id?: string } | undefined {
+  const request = demoState.teachingRequests.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!request) return undefined;
+  updateDemoState((current) => ({
+    ...current,
+    teachingRequests: current.teachingRequests.filter(
+      (candidate) => candidate.id !== id,
+    ),
+  }));
+  return {
+    id,
+    status,
+    ...(status === "approved" && request.course_id
+      ? { offering_id: request.course_id }
+      : {}),
+  };
+}
+
+function generatePairingCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const block = () =>
+    Array.from(
+      { length: 4 },
+      () => alphabet[Math.floor(Math.random() * alphabet.length)],
+    ).join("");
+  return `${block()}-${block()}`;
+}
+
+function pairingExpiry(): string {
+  return new Date(Date.now() + 15 * 60 * 1000).toISOString();
+}
+
+export function listDemoDevices(limit: number, offset: number): DevicesResponse {
+  const all = demoState.devices;
+  const page = all.slice(offset, offset + limit);
+  return {
+    items: page,
+    limit,
+    offset,
+    has_more: offset + page.length < all.length,
+  };
+}
+
+export function provisionDemoDevice(
+  payload: ProvisionDeviceRequest,
+): ProvisionedDevice {
+  const venue = demoVenues.find((candidate) => candidate.id === payload.venue_id);
+  const expiry = pairingExpiry();
+  const device: DeviceListItem = {
+    id: globalThis.crypto.randomUUID(),
+    name: payload.name,
+    venue_id: payload.venue_id,
+    venue_name: venue?.name ?? "Unknown venue",
+    department_id: venue?.department_id ?? null,
+    status: "unpaired",
+    last_seen_at: null,
+    paired_at: null,
+    firmware_version: null,
+    battery_percent: null,
+    pending_queue_depth: null,
+    status_reported_at: null,
+    pairing_code_expires_at: expiry,
+  };
+  updateDemoState((current) => ({
+    ...current,
+    devices: [device, ...current.devices],
+  }));
+  return {
+    device,
+    pairing: {
+      device_id: device.id,
+      pairing_code: generatePairingCode(),
+      pairing_code_expires_at: expiry,
+    },
+  };
+}
+
+export function regenerateDemoPairingCode(
+  id: string,
+): DevicePairingCode | undefined {
+  const device = demoState.devices.find((candidate) => candidate.id === id);
+  if (!device) return undefined;
+  const expiry = pairingExpiry();
+  updateDemoState((current) => ({
+    ...current,
+    devices: current.devices.map((candidate) =>
+      candidate.id === id
+        ? { ...candidate, pairing_code_expires_at: expiry }
+        : candidate,
+    ),
+  }));
+  return {
+    device_id: id,
+    pairing_code: generatePairingCode(),
+    pairing_code_expires_at: expiry,
+  };
+}
+
+export function rotateDemoDeviceKey(id: string): DevicePairingCode | undefined {
+  const device = demoState.devices.find((candidate) => candidate.id === id);
+  if (!device) return undefined;
+  const expiry = pairingExpiry();
+  updateDemoState((current) => ({
+    ...current,
+    devices: current.devices.map((candidate) =>
+      candidate.id === id
+        ? {
+            ...candidate,
+            status: "unpaired",
+            paired_at: null,
+            pairing_code_expires_at: expiry,
+          }
+        : candidate,
+    ),
+  }));
+  return {
+    device_id: id,
+    pairing_code: generatePairingCode(),
+    pairing_code_expires_at: expiry,
+  };
+}
+
+export function revokeDemoDevice(id: string): boolean {
+  const device = demoState.devices.find((candidate) => candidate.id === id);
+  if (!device) return false;
+  updateDemoState((current) => ({
+    ...current,
+    devices: current.devices.map((candidate) =>
+      candidate.id === id
+        ? { ...candidate, status: "revoked", pairing_code_expires_at: null }
+        : candidate,
+    ),
+  }));
+  return true;
+}
+
+export function enqueueDemoEnrolment(
+  deviceId: string,
+  studentRecordId: string,
+): EnqueueEnrolmentResponse | "device_not_found" | "student_not_found" {
+  const device = demoState.devices.find(
+    (candidate) => candidate.id === deviceId,
+  );
+  if (!device) return "device_not_found";
+  const student = DEMO_DIRECTORY_USERS.find(
+    (user) =>
+      user.id === studentRecordId &&
+      user.roles?.some((entry) => entry.role === "student"),
+  );
+  if (!student) return "student_not_found";
+  const slot = (demoDeviceSlots.get(deviceId) ?? 0) + 1;
+  demoDeviceSlots.set(deviceId, slot);
+  updateDemoState((current) => ({
+    ...current,
+    devices: current.devices.map((candidate) =>
+      candidate.id === deviceId
+        ? {
+            ...candidate,
+            pending_queue_depth: (candidate.pending_queue_depth ?? 0) + 1,
+          }
+        : candidate,
+    ),
+  }));
+  return {
+    task_id: globalThis.crypto.randomUUID(),
+    slot_number: slot,
+    status: "pending",
+  };
+}
+
 export function searchDemoOfferings(
   query: SearchOfferingsQuery,
 ): SearchOfferingsResponse {
@@ -843,45 +1395,7 @@ export function searchDemoOfferings(
   const limit = query.limit ?? 50;
   const items: SearchOfferingsResponse["items"] = matching
     .slice(offset, offset + limit)
-    .map((offering) => {
-      const pending = demoState.pendingRegistrations.includes(offering.code);
-      const registered =
-        demoState.enrollments.includes(offering.code) && !pending;
-      return {
-        offering_id: offering.id,
-        course_id: offering.courseId ?? offering.id,
-        course_code: offering.code,
-        course_title: offering.title,
-        code: offering.code,
-        title: offering.title,
-        department_id: demoDepartmentId(offering.department),
-        department_name: offering.department,
-        level: Number.parseInt(offering.level, 10),
-        kind: offering.kind === "General" ? "general" : "departmental",
-        registration_mode:
-          offering.registration === "Auto"
-            ? "auto"
-            : offering.registration === "Approval"
-              ? "approval"
-              : offering.registration === "Closed"
-                ? "closed"
-                : "open",
-        lecturers: listDemoOfferingLecturers(offering.id).map(
-          ({ display_name }) => display_name,
-        ),
-        registration_status: pending
-          ? "pending"
-          : registered
-            ? "approved"
-            : "none",
-        is_registered: registered,
-        is_pending: pending,
-        semester_id:
-          offering.semesterId ?? "10000000-0000-4000-8000-000000000002",
-        semester: offering.semesterName ?? "Semester 2",
-        rank: 1,
-      };
-    });
+    .map((offering) => ({ ...demoOfferingCard(offering), rank: 1 }));
   return {
     items,
     limit,

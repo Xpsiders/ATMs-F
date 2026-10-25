@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "@/shared/lib/apiClient";
-import { ApiError, formatApiError } from "@/api/errors";
+import { ApiError, formatApiError, presentApiError } from "@/api/errors";
 import type {
   AcademicSessionsResponse,
   CatalogueItem,
@@ -16,6 +16,11 @@ import type {
   CreateSemesterResponse,
   CreateVenueRequest,
   CreateVenueResponse,
+  DeviceListItem,
+  DevicePairingCode,
+  DevicesResponse,
+  EnqueueEnrolmentResponse,
+  ProvisionedDevice,
   DeleteAcademicSessionResponse,
   DeleteSemesterResponse,
   OfferingLecturersResponse,
@@ -30,6 +35,8 @@ import type {
   StaffImportRequest,
   SetOfferingLecturersRequest,
   SetOfferingLecturersResponse,
+  TeachingRequestsResponse,
+  ReviewTeachingRequestRequest,
   UpdateAcademicSessionRequest,
   UpdateAcademicSessionResponse,
   UpdateSemesterRequest,
@@ -38,7 +45,8 @@ import type {
   UpdateVenueResponse,
   VenueListResponse,
 } from "@/api/contracts";
-import { Icon, PageHeading } from "@/shared/ui/primitives";
+import { Icon, type IconName, PageHeading } from "@/shared/ui/primitives";
+import { UserSearchSelect } from "@/shared/ui/UserSearchSelect";
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
 const NEW_COURSE_OPTION = "__new_course__";
@@ -460,6 +468,701 @@ export function SignupRequestReview() {
           </p>
         )}
       </section>
+    </div>
+  );
+}
+
+export function TeachingRequestsReview() {
+  const [requests, setRequests] = useState<TeachingRequestsResponse["items"]>(
+    [],
+  );
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void apiRequest<TeachingRequestsResponse>(
+      "/teaching-requests?limit=200&offset=0",
+    )
+      .then((response) => {
+        if (active) setRequests(response.items ?? []);
+      })
+      .catch((caught: unknown) => {
+        if (active) setError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  async function review(status: ReviewTeachingRequestRequest["status"]) {
+    if (!selectedId) {
+      setError("Select a teaching request before reviewing it.");
+      return;
+    }
+    const body: ReviewTeachingRequestRequest = { status };
+    setPending(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest<void>(
+        `/teaching-requests/${encodeURIComponent(selectedId)}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      );
+      setSelectedId("");
+      setMessage(
+        status === "approved"
+          ? "Teaching request approved; the offering has been created."
+          : "Teaching request rejected.",
+      );
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="SCOPED ADMINISTRATION"
+        title="Teaching requests"
+        subtitle="Review cross-department teaching requests within your administrator scope."
+      />
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="form-info" role="status">
+          {message}
+        </div>
+      )}
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Pending requests</h2>
+            <p>Approval creates the offering and assigns the lecturer.</p>
+          </div>
+          <button
+            className="text-button"
+            onClick={() => setReloadKey((key) => key + 1)}
+          >
+            Refresh
+          </button>
+        </div>
+        {loading ? (
+          <p role="status">Loading teaching requests…</p>
+        ) : requests.length ? (
+          <>
+            {requests.map((request, index) => {
+              const id = request.id;
+              const courseLabel =
+                [request.course_code, request.course_title]
+                  .filter((part) => part && part.trim())
+                  .join(" — ") || `Teaching request ${index + 1}`;
+              return (
+                <label className="teaching-row" key={id ?? index}>
+                  <span>
+                    <input
+                      type="radio"
+                      name="teaching-request"
+                      value={id ?? ""}
+                      checked={Boolean(id && selectedId === id)}
+                      disabled={!id}
+                      onChange={() => {
+                        if (id) setSelectedId(id);
+                      }}
+                    />
+                    <b>{courseLabel}</b>
+                    {request.lecturer_name && (
+                      <span>{request.lecturer_name}</span>
+                    )}
+                  </span>
+                  <span className="status-pill status-pending">
+                    <Icon name="clock" size={13} />
+                    {request.status ? request.status : "pending"}
+                  </span>
+                  {!id && (
+                    <small>Request ID unavailable in API response.</small>
+                  )}
+                </label>
+              );
+            })}
+            <div className="button-row">
+              <button
+                className="button secondary-button"
+                disabled={pending || !selectedId}
+                onClick={() => void review("rejected")}
+              >
+                Reject request
+              </button>
+              <button
+                className="button primary-button"
+                disabled={pending || !selectedId}
+                onClick={() => void review("approved")}
+              >
+                {pending ? "Saving…" : "Approve request"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="empty-state">
+            There are no pending teaching requests in your scope.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+const DEVICE_STATUS_META: Record<
+  DeviceListItem["status"],
+  { label: string; className: string; icon: IconName }
+> = {
+  unpaired: {
+    label: "Awaiting pairing",
+    className: "status-unpaired",
+    icon: "clock",
+  },
+  active: { label: "Active", className: "status-active", icon: "check" },
+  revoked: { label: "Revoked", className: "status-revoked", icon: "dispute" },
+};
+
+function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "unknown";
+  const diffSec = Math.round((ts - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (abs < 60) return rtf.format(diffSec, "second");
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), "minute");
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), "hour");
+  if (abs < 2592000) return rtf.format(Math.round(diffSec / 86400), "day");
+  return new Date(ts).toLocaleDateString();
+}
+
+function formatExpiry(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  return new Date(ts).toLocaleString();
+}
+
+export function ScannerAdministration() {
+  const [devices, setDevices] = useState<DeviceListItem[]>([]);
+  const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
+  const [canProvision, setCanProvision] = useState(true);
+  const [scopeDenied, setScopeDenied] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [provisionVenueId, setProvisionVenueId] = useState("");
+  const [provisionName, setProvisionName] = useState("");
+  const [provisioning, setProvisioning] = useState(false);
+
+  const [pairing, setPairing] = useState<DevicePairingCode | null>(null);
+  const [pairingContext, setPairingContext] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const [confirmAction, setConfirmAction] = useState<{
+    kind: "rotate" | "revoke";
+    device: DeviceListItem;
+  } | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+
+  const [enrolOpenId, setEnrolOpenId] = useState("");
+  const [enrolStudentId, setEnrolStudentId] = useState("");
+  const [enrolPending, setEnrolPending] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    setScopeDenied(false);
+    void apiRequest<DevicesResponse>("/devices?limit=100&offset=0")
+      .then((response) => {
+        if (active) setDevices(response.items ?? []);
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        if (caught instanceof ApiError && caught.status === 403)
+          setScopeDenied(true);
+        else setError(formatApiError(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  useEffect(() => {
+    let active = true;
+    void apiRequest<VenueListResponse>("/venues?limit=200&offset=0")
+      .then((response) => {
+        if (!active) return;
+        setVenues((response.items ?? []).filter((venue) => venue.active));
+        setCanProvision(true);
+      })
+      .catch((caught: unknown) => {
+        if (active && caught instanceof ApiError && caught.status === 403)
+          setCanProvision(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  function openPairing(code: DevicePairingCode, context: string) {
+    setPairing(code);
+    setPairingContext(context);
+    setCopied(false);
+  }
+
+  async function provision(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!provisionVenueId) {
+      setError("Select a venue for the scanner.");
+      return;
+    }
+    setProvisioning(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiRequest<ProvisionedDevice>("/devices", {
+        method: "POST",
+        body: JSON.stringify({
+          venue_id: provisionVenueId,
+          name: provisionName.trim(),
+        }),
+      });
+      openPairing(
+        result.pairing,
+        `New scanner “${result.device.name}” at ${result.device.venue_name}`,
+      );
+      setProvisionName("");
+      setProvisionVenueId("");
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setProvisioning(false);
+    }
+  }
+
+  async function issuePairingCode(device: DeviceListItem) {
+    setActionPending(true);
+    setError("");
+    setMessage("");
+    try {
+      const code = await apiRequest<DevicePairingCode>(
+        `/devices/${encodeURIComponent(device.id)}/pairing-code`,
+        { method: "POST" },
+      );
+      openPairing(code, `New pairing code for “${device.name}”`);
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function runConfirm() {
+    if (!confirmAction) return;
+    const { kind, device } = confirmAction;
+    setActionPending(true);
+    setError("");
+    setMessage("");
+    try {
+      if (kind === "rotate") {
+        const code = await apiRequest<DevicePairingCode>(
+          `/devices/${encodeURIComponent(device.id)}/rotate-key`,
+          { method: "POST" },
+        );
+        setConfirmAction(null);
+        openPairing(
+          code,
+          `Re-pair “${device.name}” — the scanner stays offline until it pairs with this code`,
+        );
+      } else {
+        await apiRequest<void>(`/devices/${encodeURIComponent(device.id)}`, {
+          method: "DELETE",
+        });
+        setConfirmAction(null);
+        setMessage(`“${device.name}” was revoked.`);
+      }
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(formatApiError(caught));
+      setConfirmAction(null);
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function enrol(device: DeviceListItem) {
+    if (!enrolStudentId) {
+      setError("Select a student to enrol.");
+      return;
+    }
+    setEnrolPending(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiRequest<EnqueueEnrolmentResponse>(
+        `/devices/${encodeURIComponent(device.id)}/enrolments`,
+        {
+          method: "POST",
+          body: JSON.stringify({ student_record_id: enrolStudentId }),
+        },
+      );
+      setMessage(
+        `Queued on slot ${result.slot_number} — have the student place their finger on “${device.name}”. The scanner enrols them automatically.`,
+      );
+      setEnrolStudentId("");
+      setEnrolOpenId("");
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setEnrolPending(false);
+    }
+  }
+
+  async function copyCode() {
+    if (!pairing) return;
+    try {
+      await navigator.clipboard.writeText(pairing.pairing_code);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="SCOPED ADMINISTRATION"
+        title="Scanners"
+        subtitle="Provision and manage fingerprint scanners for venues in your scope."
+      />
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div className="form-info" role="status">
+          {message}
+        </div>
+      )}
+      {scopeDenied ? (
+        <section className="panel">
+          <p className="empty-state">
+            You don't have access to manage scanners. Ask an administrator with
+            authority over the venue's department, or a venue where you teach.
+          </p>
+        </section>
+      ) : (
+        <>
+          {canProvision && (
+            <form
+              className="panel page-stack"
+              onSubmit={(event) => void provision(event)}
+            >
+              <div>
+                <h2>Provision a scanner</h2>
+                <p>
+                  Register a scanner for a venue. A one-time pairing code is shown
+                  once — flash it into the device firmware.
+                </p>
+              </div>
+              <div className="form-grid">
+                <label className="field-label">
+                  Venue
+                  <select
+                    className="field-control"
+                    value={provisionVenueId}
+                    onChange={(event) => setProvisionVenueId(event.target.value)}
+                    required
+                  >
+                    <option value="">Select a venue…</option>
+                    {venues.map((venue) => (
+                      <option key={venue.id} value={venue.id}>
+                        {venue.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-label">
+                  Scanner name
+                  <input
+                    className="field-control"
+                    value={provisionName}
+                    onChange={(event) => setProvisionName(event.target.value)}
+                    required
+                    maxLength={120}
+                    placeholder="e.g. LT 2 entrance scanner"
+                  />
+                </label>
+              </div>
+              <div className="button-row">
+                <button
+                  className="button primary-button"
+                  type="submit"
+                  disabled={provisioning}
+                >
+                  {provisioning ? "Provisioning…" : "Provision scanner"}
+                </button>
+              </div>
+            </form>
+          )}
+          <section className="panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Scanners</h2>
+                <p>
+                  Attendance captured by these scanners appears in the usual
+                  session reports for the assigned lecturer.
+                </p>
+              </div>
+              <button
+                className="text-button"
+                onClick={() => setReloadKey((key) => key + 1)}
+              >
+                Refresh
+              </button>
+            </div>
+            {loading ? (
+              <p role="status">Loading scanners…</p>
+            ) : devices.length ? (
+              devices.map((device) => {
+                const meta = DEVICE_STATUS_META[device.status];
+                const health: string[] = [];
+                if (device.firmware_version)
+                  health.push(`Firmware ${device.firmware_version}`);
+                if (typeof device.battery_percent === "number")
+                  health.push(`Battery ${device.battery_percent}%`);
+                if (typeof device.pending_queue_depth === "number")
+                  health.push(`Queue ${device.pending_queue_depth}`);
+                const expiry = formatExpiry(device.pairing_code_expires_at);
+                return (
+                  <div className="teaching-row device-row" key={device.id}>
+                    <div className="device-main">
+                      <b>{device.name}</b>
+                      <span>{device.venue_name}</span>
+                      <span>Last seen {formatRelative(device.last_seen_at)}</span>
+                      {health.length > 0 && <span>{health.join(" · ")}</span>}
+                      {device.status !== "revoked" && expiry && (
+                        <span>Pairing code pending (expires {expiry})</span>
+                      )}
+                      {enrolOpenId === device.id && (
+                        <div className="device-enrol">
+                          <UserSearchSelect
+                            label="Student to enrol"
+                            value={enrolStudentId}
+                            onChange={setEnrolStudentId}
+                            role="student"
+                            hint="Search the directory for the student to enrol on this scanner."
+                          />
+                          <div className="button-row">
+                            <button
+                              className="button primary-button"
+                              type="button"
+                              disabled={enrolPending || !enrolStudentId}
+                              onClick={() => void enrol(device)}
+                            >
+                              {enrolPending ? "Queuing…" : "Queue enrolment"}
+                            </button>
+                            <button
+                              className="button secondary-button"
+                              type="button"
+                              onClick={() => {
+                                setEnrolOpenId("");
+                                setEnrolStudentId("");
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="device-side">
+                      <span className={`status-pill ${meta.className}`}>
+                        <Icon name={meta.icon} size={13} />
+                        {meta.label}
+                      </span>
+                      {device.status !== "revoked" && (
+                        <div className="button-row">
+                          {device.status === "unpaired" && (
+                            <button
+                              className="text-button"
+                              disabled={actionPending}
+                              onClick={() => void issuePairingCode(device)}
+                            >
+                              Issue pairing code
+                            </button>
+                          )}
+                          {device.status === "active" && (
+                            <button
+                              className="text-button"
+                              disabled={actionPending}
+                              onClick={() =>
+                                setConfirmAction({ kind: "rotate", device })
+                              }
+                            >
+                              Rotate key
+                            </button>
+                          )}
+                          <button
+                            className="text-button"
+                            onClick={() => {
+                              setEnrolStudentId("");
+                              setEnrolOpenId(
+                                enrolOpenId === device.id ? "" : device.id,
+                              );
+                            }}
+                          >
+                            {enrolOpenId === device.id
+                              ? "Close enrolment"
+                              : "Enrol student"}
+                          </button>
+                          <button
+                            className="text-button"
+                            disabled={actionPending}
+                            onClick={() =>
+                              setConfirmAction({ kind: "revoke", device })
+                            }
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="empty-state">
+                No scanners are registered in your scope yet.
+              </p>
+            )}
+          </section>
+        </>
+      )}
+      {pairing && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pairing-title"
+          >
+            <button
+              className="dialog-close"
+              aria-label="Close dialog"
+              onClick={() => setPairing(null)}
+            >
+              ×
+            </button>
+            <h2 id="pairing-title">Pairing code</h2>
+            <p>{pairingContext}</p>
+            <div className="pairing-code" aria-label="Pairing code">
+              {pairing.pairing_code}
+            </div>
+            <p className="pairing-note">
+              Flash this code into the scanner firmware. It will not be shown
+              again.
+              {pairing.pairing_code_expires_at &&
+                ` Expires ${formatExpiry(pairing.pairing_code_expires_at)}.`}
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="button secondary-button"
+                type="button"
+                onClick={() => void copyCode()}
+              >
+                {copied ? "Copied" : "Copy code"}
+              </button>
+              <button
+                className="button primary-button"
+                type="button"
+                onClick={() => setPairing(null)}
+              >
+                Done
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {confirmAction && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="device-confirm-title"
+          >
+            <button
+              className="dialog-close"
+              aria-label="Close dialog"
+              onClick={() => setConfirmAction(null)}
+            >
+              ×
+            </button>
+            <h2 id="device-confirm-title">
+              {confirmAction.kind === "rotate"
+                ? `Rotate the key for “${confirmAction.device.name}”?`
+                : `Revoke “${confirmAction.device.name}”?`}
+            </h2>
+            <p>
+              {confirmAction.kind === "rotate"
+                ? "The scanner will stop working until it is re-paired with the new code."
+                : "The scanner's key is rejected immediately. Its records stay for reporting."}
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="button secondary-button"
+                type="button"
+                disabled={actionPending}
+                onClick={() => setConfirmAction(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary-button"
+                type="button"
+                disabled={actionPending}
+                onClick={() => void runConfirm()}
+              >
+                {actionPending
+                  ? "Working…"
+                  : confirmAction.kind === "rotate"
+                    ? "Rotate key"
+                    : "Revoke scanner"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -1140,6 +1843,10 @@ export function RoleAssignment() {
 
   async function assign(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!userId.trim()) {
+      setError("Select a user to assign a role to.");
+      return;
+    }
     setPending(true);
     setError("");
     setMessage("");
@@ -1187,15 +1894,12 @@ export function RoleAssignment() {
         className="panel page-stack"
         onSubmit={(event) => void assign(event)}
       >
-        <label className="field-label">
-          User ID
-          <input
-            className="field-control"
-            value={userId}
-            onChange={(event) => setUserId(event.target.value)}
-            required
-          />
-        </label>
+        <UserSearchSelect
+          label="User"
+          value={userId}
+          onChange={setUserId}
+          hint="Search by name or email for the person to grant an administrator role."
+        />
         <div className="form-grid">
           <label className="field-label">
             Role
@@ -1272,6 +1976,8 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
   const [coursePending, setCoursePending] = useState(false);
   const [courseError, setCourseError] = useState("");
   const [courseMessage, setCourseMessage] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<CatalogueItem | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
   const [catalogueCourses, setCatalogueCourses] = useState<CatalogueItem[]>([]);
   const [catalogueSemesters, setCatalogueSemesters] = useState<CatalogueItem[]>(
     [],
@@ -1305,6 +2011,11 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [offeringMessage, setOfferingMessage] = useState("");
+  const [deleteOfferingTarget, setDeleteOfferingTarget] = useState<
+    SearchOfferingsResponse["items"][number] | null
+  >(null);
+  const [deleteOfferingPending, setDeleteOfferingPending] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const departmentAdminRole = user.roles.find(
     (role) =>
@@ -1561,6 +2272,69 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     }
   }
 
+  async function deleteCourse() {
+    if (!deleteTarget) return;
+    const label =
+      [
+        displayValue(deleteTarget, ["code"]),
+        displayValue(deleteTarget, ["title", "name"]),
+      ]
+        .filter(Boolean)
+        .join(" · ") || "Course";
+    setDeletePending(true);
+    setCourseError("");
+    setCourseMessage("");
+    try {
+      await apiRequest<void>(
+        `/courses/${encodeURIComponent(deleteTarget.id)}`,
+        { method: "DELETE" },
+      );
+      setCourseMessage(`${label} was deleted.`);
+      setOfferingCourseId(NEW_COURSE_OPTION);
+      setDeleteTarget(null);
+      setCatalogueReloadKey((key) => key + 1);
+    } catch (caught) {
+      setCourseError(
+        caught instanceof ApiError
+          ? presentApiError(caught.code, caught.message).message
+          : formatApiError(caught),
+      );
+      setDeleteTarget(null);
+    } finally {
+      setDeletePending(false);
+    }
+  }
+
+  async function deleteOffering() {
+    if (!deleteOfferingTarget) return;
+    const label = `${deleteOfferingTarget.course_code} · ${deleteOfferingTarget.course_title}`;
+    const removedId = deleteOfferingTarget.offering_id;
+    setDeleteOfferingPending(true);
+    setError("");
+    setOfferingMessage("");
+    try {
+      await apiRequest<void>(
+        `/offerings/${encodeURIComponent(removedId)}`,
+        { method: "DELETE" },
+      );
+      setOfferingMessage(`${label} (offering) was deleted.`);
+      setDeleteOfferingTarget(null);
+      if (managedOffering?.offering_id === removedId) setManagedOffering(null);
+      setReloadKey((key) => key + 1);
+      // The course may now be free of offerings and therefore deletable.
+      setCatalogueReloadKey((key) => key + 1);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? presentApiError(caught.code, caught.message).message
+          : formatApiError(caught),
+      );
+      setDeleteOfferingTarget(null);
+    } finally {
+      setDeleteOfferingPending(false);
+    }
+  }
+
   async function openLecturerManager(
     offering: SearchOfferingsResponse["items"][number],
   ) {
@@ -1588,6 +2362,10 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
     event.preventDefault();
     if (!managedOffering) return;
     const id = lecturerAccountId.trim();
+    if (!id) {
+      setLecturerError("Select a lecturer to assign.");
+      return;
+    }
     if (assignedLecturers.some((lecturer) => lecturer.id === id)) {
       setLecturerError("That lecturer is already assigned to this offering.");
       return;
@@ -1718,6 +2496,27 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
               ))}
             </select>
           </label>
+          {offeringCourseId !== NEW_COURSE_OPTION && (
+            <div className="course-delete-row">
+              <small>
+                Deleting a course removes it from the catalogue. A course that
+                still has offerings must have them removed first.
+              </small>
+              <button
+                type="button"
+                className="text-button text-button-danger"
+                disabled={coursePending || deletePending || catalogueLoading}
+                onClick={() => {
+                  const course = catalogueCourses.find(
+                    (item) => item.id === offeringCourseId,
+                  );
+                  if (course) setDeleteTarget(course);
+                }}
+              >
+                Delete course
+              </button>
+            </div>
+          )}
           {offeringCourseId === NEW_COURSE_OPTION && (
             <>
               <label className="field-label">
@@ -1839,33 +2638,79 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
               required
             />
           </label>
-          <label className="field-label">
-            Lecturer account UUID (optional)
-            <input
-              className="field-control"
-              value={courseLecturerId}
-              onChange={(event) => setCourseLecturerId(event.target.value)}
-              placeholder="Enter the lecturer's account UUID"
-            />
-          </label>
-          <label className="field-label">
-            Registration mode
-            <select
-              className="field-control"
-              value={registrationMode}
-              onChange={(event) =>
-                setRegistrationMode(
-                  event.target
-                    .value as CreateOfferingRequest["registration_mode"],
-                )
-              }
+          <UserSearchSelect
+            label="Lecturer (optional)"
+            value={courseLecturerId}
+            onChange={setCourseLecturerId}
+            role="lecturer"
+            hint="Search by name or email to assign a lecturer when the offering is created."
+          />
+          <div className="field-label registration-field">
+            Registration
+            <div
+              className="segmented"
+              role="radiogroup"
+              aria-label="Registration mode"
             >
-              <option value="auto">Automatic</option>
-              <option value="open">Open</option>
-              <option value="approval">Approval required</option>
-              <option value="closed">Closed</option>
-            </select>
-          </label>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={registrationMode === "open"}
+                className={`segmented-option${registrationMode === "open" ? " is-active" : ""}`}
+                onClick={() => setRegistrationMode("open")}
+              >
+                Self-register
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={registrationMode === "approval"}
+                className={`segmented-option${registrationMode === "approval" ? " is-active" : ""}`}
+                onClick={() => setRegistrationMode("approval")}
+              >
+                Needs approval
+              </button>
+            </div>
+            <small>
+              {registrationMode === "open"
+                ? "Students register themselves and are approved immediately."
+                : registrationMode === "approval"
+                  ? "Students register and a lecturer or admin approves each request."
+                  : registrationMode === "auto"
+                    ? "Matching department-and-level students are enrolled automatically."
+                    : "No new registrations are accepted."}
+            </small>
+            <details
+              className="advanced-modes"
+              open={registrationMode === "auto" || registrationMode === "closed"}
+            >
+              <summary>Advanced registration modes</summary>
+              <div
+                className="segmented"
+                role="radiogroup"
+                aria-label="Advanced registration mode"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={registrationMode === "auto"}
+                  className={`segmented-option${registrationMode === "auto" ? " is-active" : ""}`}
+                  onClick={() => setRegistrationMode("auto")}
+                >
+                  Automatic enrolment
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={registrationMode === "closed"}
+                  className={`segmented-option${registrationMode === "closed" ? " is-active" : ""}`}
+                  onClick={() => setRegistrationMode("closed")}
+                >
+                  Closed
+                </button>
+              </div>
+            </details>
+          </div>
           <label className="field-label">
             Roster policy
             <select
@@ -1940,6 +2785,11 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
           Lecturer names are shown for each course in its semester. This is not
           a directory of staff who have no courses assigned.
         </p>
+        {offeringMessage && (
+          <div className="form-info" role="status">
+            {offeringMessage}
+          </div>
+        )}
         {loading ? (
           <p role="status">Loading scoped courses and offerings…</p>
         ) : error ? (
@@ -1976,16 +2826,27 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
                       ? offering.lecturers.join(", ")
                       : "No lecturers assigned"}
                   </span>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => void openLecturerManager(offering)}
-                    aria-label={`Manage lecturers for ${offering.course_code}`}
-                  >
-                    {managedOffering?.offering_id === offering.offering_id
-                      ? "Refresh lecturers"
-                      : "Manage lecturers"}
-                  </button>
+                  <div className="button-row">
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => void openLecturerManager(offering)}
+                      aria-label={`Manage lecturers for ${offering.course_code}`}
+                    >
+                      {managedOffering?.offering_id === offering.offering_id
+                        ? "Refresh lecturers"
+                        : "Manage lecturers"}
+                    </button>
+                    <button
+                      className="text-button text-button-danger"
+                      type="button"
+                      disabled={deleteOfferingPending}
+                      onClick={() => setDeleteOfferingTarget(offering)}
+                      aria-label={`Delete offering ${offering.course_code}`}
+                    >
+                      Delete offering
+                    </button>
+                  </div>
                 </div>
                 {managedOffering?.offering_id === offering.offering_id && (
                   <div className="admin-lecturer-manager">
@@ -2053,20 +2914,15 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
                           className="admin-add-lecturer-form"
                           onSubmit={(event) => void addOfferingLecturer(event)}
                         >
-                          <label className="field-label">
-                            Lecturer account UUID
-                            <input
-                              className="field-control"
-                              value={lecturerAccountId}
-                              onChange={(event) =>
-                                setLecturerAccountId(event.target.value)
-                              }
-                              required
-                            />
-                          </label>
+                          <UserSearchSelect
+                            label="Lecturer"
+                            value={lecturerAccountId}
+                            onChange={setLecturerAccountId}
+                            role="lecturer"
+                          />
                           <button
                             className="button secondary-button"
-                            disabled={lecturerPending}
+                            disabled={lecturerPending || !lecturerAccountId}
                           >
                             {lecturerPending
                               ? "Adding lecturer…"
@@ -2088,6 +2944,104 @@ export function CoursesAndOfferings({ user }: { user: CurrentUser }) {
           </p>
         )}
       </section>
+      {deleteTarget && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-course-title"
+          >
+            <button
+              className="dialog-close"
+              aria-label="Close dialog"
+              onClick={() => setDeleteTarget(null)}
+            >
+              ×
+            </button>
+            <h2 id="delete-course-title">
+              Delete{" "}
+              {[
+                displayValue(deleteTarget, ["code"]),
+                displayValue(deleteTarget, ["title", "name"]),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "this course"}
+              ?
+            </h2>
+            <p>
+              This removes the course from the catalogue. It can't be undone. A
+              course that still has offerings can't be deleted — remove its
+              offerings first.
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="button secondary-button"
+                type="button"
+                disabled={deletePending}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary-button"
+                type="button"
+                disabled={deletePending}
+                onClick={() => void deleteCourse()}
+              >
+                {deletePending ? "Deleting…" : "Delete course"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {deleteOfferingTarget && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-offering-title"
+          >
+            <button
+              className="dialog-close"
+              aria-label="Close dialog"
+              onClick={() => setDeleteOfferingTarget(null)}
+            >
+              ×
+            </button>
+            <h2 id="delete-offering-title">
+              Delete the {deleteOfferingTarget.course_code}
+              {deleteOfferingTarget.semester
+                ? ` · ${deleteOfferingTarget.semester}`
+                : ""}{" "}
+              offering?
+            </h2>
+            <p>
+              This removes the offering and its lecturer assignments. Attendance
+              already recorded is kept. This can't be undone.
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="button secondary-button"
+                type="button"
+                disabled={deleteOfferingPending}
+                onClick={() => setDeleteOfferingTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary-button"
+                type="button"
+                disabled={deleteOfferingPending}
+                onClick={() => void deleteOffering()}
+              >
+                {deleteOfferingPending ? "Deleting…" : "Delete offering"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

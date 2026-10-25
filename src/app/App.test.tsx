@@ -436,6 +436,13 @@ describe("Campus Attendance screens", () => {
     });
     await screen.findByRole("option", { name: "Backend Department" });
     await user.selectOptions(departmentFilter, departmentId);
+    // The department filter is a search refinement: it only reaches
+    // /offerings/search once a search term is entered (the endpoint 400s on an
+    // empty q, so the default view uses GET /me/offerings instead).
+    await user.type(
+      screen.getByRole("textbox", { name: "Search classes" }),
+      "Course",
+    );
 
     expect(
       await screen.findByRole("heading", {
@@ -443,6 +450,148 @@ describe("Campus Attendance screens", () => {
       }),
     ).toBeInTheDocument();
     expect(requestedDepartments).toContain(departmentId);
+  });
+
+  it("browses /me/offerings by default and only searches once a term is typed", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    let myOfferingsCalled = false;
+    const searchQueries: string[] = [];
+    server.use(
+      http.get(`${apiBaseUrl}/me/offerings`, () => {
+        myOfferingsCalled = true;
+        return HttpResponse.json({
+          items: [
+            {
+              id: "10000000-0000-4000-8000-000000000901",
+              offering_id: "10000000-0000-4000-8000-000000000901",
+              course_code: "SCP 901",
+              course_title: "My Scoped Offering",
+              department_id: "10000000-0000-4000-8000-000000000902",
+              department_name: "My Department",
+              level: 300,
+              kind: "departmental",
+              registration_mode: "open",
+              lecturers: ["Dr. Scope"],
+              registration_status: "none",
+              is_registered: false,
+              is_pending: false,
+              session_open: false,
+              next_timetable_slot: null,
+            },
+          ],
+          limit: 100,
+          offset: 0,
+          has_more: false,
+        });
+      }),
+      http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
+        searchQueries.push(new URL(request.url).searchParams.get("q") ?? "");
+        return HttpResponse.json({
+          items: [
+            {
+              offering_id: "10000000-0000-4000-8000-000000000911",
+              course_id: "10000000-0000-4000-8000-000000000912",
+              course_code: "SRCH 911",
+              course_title: "Searched Offering",
+              department_id: "10000000-0000-4000-8000-000000000913",
+              department_name: "Search Department",
+              level: 200,
+              kind: "general",
+              registration_mode: "open",
+              lecturers: ["Dr. Search"],
+              registration_status: "none",
+              is_registered: false,
+              is_pending: false,
+            },
+          ],
+          limit: 50,
+          offset: 0,
+          has_more: false,
+        } satisfies SearchOfferingsResponse);
+      }),
+    );
+    renderApp("/find-classes");
+
+    // Default view loads from GET /me/offerings — never an empty-q search.
+    expect(
+      await screen.findByRole("heading", { name: "My Scoped Offering" }),
+    ).toBeInTheDocument();
+    expect(myOfferingsCalled).toBe(true);
+    expect(searchQueries).toEqual([]);
+
+    // Typing a term switches to GET /offerings/search with a non-empty q.
+    await user.type(
+      screen.getByRole("textbox", { name: "Search classes" }),
+      "Searched",
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Searched Offering" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "My Scoped Offering" }),
+    ).not.toBeInTheDocument();
+    expect(searchQueries).toContain("Searched");
+    expect(searchQueries.every((q) => q.trim() !== "")).toBe(true);
+  });
+
+  it("marks a browse offering as registered when it is in the student's approved courses", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const offeringId = "10000000-0000-4000-8000-000000000901";
+    server.use(
+      http.get(`${apiBaseUrl}/me/offerings`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: offeringId,
+              offering_id: offeringId,
+              course_code: "SCP 901",
+              course_title: "My Scoped Offering",
+              department_id: "10000000-0000-4000-8000-000000000902",
+              department_name: "My Department",
+              level: 300,
+              kind: "departmental",
+              registration_mode: "open",
+              lecturers: ["Dr. Scope"],
+              session_open: false,
+              next_timetable_slot: null,
+            },
+          ],
+          limit: 100,
+          offset: 0,
+          has_more: false,
+        }),
+      ),
+      // /me/offerings carries no registration status; the approved registration
+      // is only known via /me/courses — the same source the dashboard reads.
+      http.get(`${apiBaseUrl}/me/courses`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              offering_id: offeringId,
+              course_code: "SCP 901",
+              course_title: "My Scoped Offering",
+              lecturer_names: ["Dr. Scope"],
+              sessions_held: 0,
+              sessions_attended: 0,
+              attendance_percentage: 0,
+              minimum_attendance_percentage: 75,
+              below_threshold: false,
+            },
+          ],
+        }),
+      ),
+    );
+    renderApp("/find-classes");
+
+    expect(
+      await screen.findByRole("heading", { name: "My Scoped Offering" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Registered" }),
+    ).toBeDisabled();
   });
 
   it("shows the backend closed-registration state with its disabled explanation", async () => {
@@ -635,6 +784,201 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
   });
 
+  it("deletes a course that has no offerings", async () => {
+    const user = userEvent.setup();
+    renderApp("/courses", true, "department-admin");
+    await screen.findByRole(
+      "heading",
+      { name: "Courses & offerings" },
+      { timeout: 5_000 },
+    );
+
+    const courseSelect = await screen.findByRole("combobox", { name: "Course" });
+    await waitFor(() => expect(courseSelect).toBeEnabled());
+    await user.selectOptions(
+      courseSelect,
+      within(courseSelect).getByRole("option", { name: /CSC 110/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete course" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Delete course" }),
+    );
+
+    expect(await screen.findByText(/was deleted\./)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: /CSC 110/ }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("blocks deleting a course that still has offerings", async () => {
+    const user = userEvent.setup();
+    renderApp("/courses", true, "department-admin");
+    await screen.findByRole(
+      "heading",
+      { name: "Courses & offerings" },
+      { timeout: 5_000 },
+    );
+
+    const courseSelect = await screen.findByRole("combobox", { name: "Course" });
+    await waitFor(() => expect(courseSelect).toBeEnabled());
+    await user.selectOptions(
+      courseSelect,
+      within(courseSelect).getByRole("option", { name: /ENG 301/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete course" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Delete course" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Remove this course's offerings before deleting it\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("deletes an offering, then the freed course can be deleted", async () => {
+    const user = userEvent.setup();
+    renderApp("/courses", true, "department-admin");
+    await screen.findByRole(
+      "heading",
+      { name: "Courses & offerings" },
+      { timeout: 5_000 },
+    );
+
+    // Remove the ENG 301 offering first.
+    await user.click(
+      await screen.findByRole("button", { name: "Delete offering ENG 301" }),
+    );
+    const offeringDialog = await screen.findByRole("dialog");
+    await user.click(
+      within(offeringDialog).getByRole("button", { name: "Delete offering" }),
+    );
+    expect(
+      await screen.findByText(/\(offering\) was deleted\./),
+    ).toBeInTheDocument();
+
+    // The course is now offering-free and can be deleted on its own.
+    const courseSelect = await screen.findByRole("combobox", { name: "Course" });
+    await waitFor(() => expect(courseSelect).toBeEnabled());
+    await user.selectOptions(
+      courseSelect,
+      await within(courseSelect).findByRole("option", { name: /ENG 301/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete course" }));
+    const courseDialog = await screen.findByRole("dialog");
+    await user.click(
+      within(courseDialog).getByRole("button", { name: "Delete course" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: /ENG 301/ }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("lists teaching requests and approves one as a scoped admin", async () => {
+    const user = userEvent.setup();
+    renderApp("/admin/teaching-requests", true, "department-admin");
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Teaching requests" },
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/CPE 305 — Computer Architecture/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Dr. Ngozi Eze")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio"));
+    await user.click(screen.getByRole("button", { name: "Approve request" }));
+
+    expect(
+      await screen.findByText(
+        /Teaching request approved; the offering has been created\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no pending teaching requests/i),
+    ).toBeInTheDocument();
+  });
+
+  it("lists scanners and shows a provisioned pairing code once", async () => {
+    const user = userEvent.setup();
+    renderApp("/scanners", true, "department-admin");
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Scanners", level: 1 },
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("LT 2 entrance scanner"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Awaiting pairing")).toBeInTheDocument();
+
+    const venueSelect = screen.getByRole("combobox", { name: "Venue" });
+    await user.selectOptions(
+      venueSelect,
+      within(venueSelect).getByRole("option", { name: "LT 2" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Scanner name" }),
+      "New gate scanner",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Provision scanner" }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByRole("heading", { name: "Pairing code" }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/It will not be shown again\./),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Pairing code").textContent).toMatch(
+      /[A-Z0-9]{4}-[A-Z0-9]{4}/,
+    );
+  });
+
+  it("enrols a student on a scanner and reports the slot", async () => {
+    const user = userEvent.setup();
+    renderApp("/scanners", true, "department-admin");
+
+    await screen.findByRole(
+      "heading",
+      { name: "Scanners", level: 1 },
+      { timeout: 5_000 },
+    );
+    await screen.findByText("LT 2 entrance scanner");
+
+    await user.click(
+      screen.getAllByRole("button", { name: "Enrol student" })[0]!,
+    );
+    const picker = screen.getByRole("combobox", { name: "Student to enrol" });
+    await user.type(picker, "Amara");
+    await user.click(
+      await screen.findByRole("option", { name: /Amara Okafor/ }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Queue enrolment" }),
+    );
+
+    expect(
+      await screen.findByText(/Queued on slot 1/),
+    ).toBeInTheDocument();
+  });
+
   it("shows scoped courses and assigned lecturers to a faculty admin", async () => {
     const user = userEvent.setup();
     const apiBaseUrl =
@@ -729,6 +1073,27 @@ describe("Campus Attendance screens", () => {
           return HttpResponse.json({ lecturer_ids: assignedIds });
         },
       ),
+      http.get(`${apiBaseUrl}/users`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "20000000-0000-4000-8000-000000000010",
+              display_name: "Dr. Added Lecturer",
+              email: "added.lecturer@campus.example",
+              roles: [
+                {
+                  role: "lecturer",
+                  scope_type: "department",
+                  scope_id: "10000000-0000-4000-8000-000000000004",
+                },
+              ],
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          has_more: false,
+        }),
+      ),
     );
     renderApp("/courses", true, "department-admin");
     await screen.findByRole(
@@ -745,8 +1110,11 @@ describe("Campus Attendance screens", () => {
       await screen.findByText("ngozi.lecturer@campus.example"),
     ).toBeInTheDocument();
     await user.type(
-      screen.getByLabelText("Lecturer account UUID"),
-      "20000000-0000-4000-8000-000000000010",
+      screen.getByRole("combobox", { name: "Lecturer" }),
+      "Added",
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /Dr\. Added Lecturer/ }),
     );
     await user.click(screen.getByRole("button", { name: "Add lecturer" }));
 
@@ -758,6 +1126,26 @@ describe("Campus Attendance screens", () => {
       "20000000-0000-4000-8000-000000000010",
     ]);
     expect(await screen.findByText("Dr. Ada Okafor")).toBeInTheDocument();
+  });
+
+  it("searches the seeded lecturer directory across departments in the picker", async () => {
+    const user = userEvent.setup();
+    renderApp("/courses", true, "department-admin");
+    await screen.findByRole(
+      "heading",
+      { name: "Courses & offerings" },
+      { timeout: 5_000 },
+    );
+    const picker = screen.getByRole("combobox", { name: "Lecturer (optional)" });
+    await user.type(picker, "Amara");
+    expect(
+      await screen.findByRole("option", { name: /Dr\. Amara Okafor/ }),
+    ).toBeInTheDocument();
+    await user.clear(picker);
+    await user.type(picker, "Tunde");
+    expect(
+      await screen.findByRole("option", { name: /Dr\. Tunde Bello/ }),
+    ).toBeInTheDocument();
   });
 
   it("creates a course using the selected department and generated API payload", async () => {
@@ -803,6 +1191,27 @@ describe("Campus Attendance screens", () => {
           return HttpResponse.json({ lecturer_ids: payload.lecturer_ids });
         },
       ),
+      http.get(`${apiBaseUrl}/users`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "20000000-0000-4000-8000-000000000010",
+              display_name: "Dr. Added Lecturer",
+              email: "added.lecturer@campus.example",
+              roles: [
+                {
+                  role: "lecturer",
+                  scope_type: "department",
+                  scope_id: "10000000-0000-4000-8000-000000000004",
+                },
+              ],
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          has_more: false,
+        }),
+      ),
     );
     renderApp("/courses", true, "department-admin");
 
@@ -816,8 +1225,11 @@ describe("Campus Attendance screens", () => {
       "An introduction to cell structure.",
     );
     await user.type(
-      screen.getByLabelText("Lecturer account UUID (optional)"),
-      "20000000-0000-4000-8000-000000000010",
+      screen.getByRole("combobox", { name: "Lecturer (optional)" }),
+      "Added",
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /Dr\. Added Lecturer/ }),
     );
     await user.selectOptions(
       await screen.findByRole("combobox", { name: "Semester" }),
@@ -903,6 +1315,27 @@ describe("Campus Attendance screens", () => {
           return HttpResponse.json({ lecturer_ids: payload.lecturer_ids });
         },
       ),
+      http.get(`${apiBaseUrl}/users`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "20000000-0000-4000-8000-000000000010",
+              display_name: "Dr. Added Lecturer",
+              email: "added.lecturer@campus.example",
+              roles: [
+                {
+                  role: "lecturer",
+                  scope_type: "department",
+                  scope_id: "10000000-0000-4000-8000-000000000004",
+                },
+              ],
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          has_more: false,
+        }),
+      ),
       http.get(`${apiBaseUrl}/offerings/search`, ({ request }) => {
         const query = new URL(request.url).searchParams.get("q") ?? "";
         const items: SearchOfferingsResponse["items"] = query.includes(
@@ -951,13 +1384,13 @@ describe("Campus Attendance screens", () => {
     const levelInput = screen.getByRole("spinbutton", { name: "Level" });
     await user.clear(levelInput);
     await user.type(levelInput, "400");
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Registration mode" }),
-      "approval",
-    );
+    await user.click(screen.getByRole("radio", { name: "Needs approval" }));
     await user.type(
-      screen.getByLabelText("Lecturer account UUID (optional)"),
-      "20000000-0000-4000-8000-000000000010",
+      screen.getByRole("combobox", { name: "Lecturer (optional)" }),
+      "Added",
+    );
+    await user.click(
+      await screen.findByRole("option", { name: /Dr\. Added Lecturer/ }),
     );
     await user.click(
       screen.getByRole("button", { name: "Add course to semester" }),

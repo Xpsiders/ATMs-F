@@ -4,4 +4,4 @@ React and TypeScript are bootstrapped by Vite. `src/app` owns routing, session s
 
 The refresh token is exclusively an httpOnly server cookie (`credentials: "include"`); access tokens are memory-only. Check-in sends a per-browser UUID signal and real browser geolocation. Do not interpret frontend route guards or device hashes as authorization: the backend is authoritative.
 
-`pnpm run sync:api` replaces the draft from `../attendance-api/api/openapi.yaml` (or `API_SPEC_PATH`) and runs the OpenAPI type generator. Run typecheck and update `docs/API_ASSUMPTIONS.md` after syncing.
+`pnpm run sync:api` replaces the draft from `../ATMs/api/openapi.yaml` in this workspace (or `API_SPEC_PATH`) and runs the OpenAPI type generator. Relative `API_SPEC_PATH` values resolve from the current working directory. Run typecheck and update `docs/API_ASSUMPTIONS.md` after syncing.

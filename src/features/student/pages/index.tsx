@@ -11,6 +11,8 @@ import type {
   DepartmentCatalogueResponse,
   LiveClass,
   LiveClassesResponse,
+  OfferingsResponse,
+  PendingRegistrationsResponse,
   RegistrationResponse,
   SearchOffering,
   SearchOfferingsQuery,
@@ -888,6 +890,57 @@ export function CheckIn({
   );
 }
 
+type BrowseOffering = {
+  offering_id: string;
+  course_code: string;
+  course_title: string;
+  department_id: string;
+  department_name: string;
+  level: number | string;
+  kind: "departmental" | "general";
+  registration_mode: SearchOffering["registration_mode"];
+  registration_status: SearchOffering["registration_status"];
+  lecturers: string[];
+  is_registered: boolean;
+  is_pending: boolean;
+};
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+// Normalises an item from either GET /me/offerings (the default scoped list,
+// whose browse fields arrive as additionalProperties) or GET /offerings/search
+// (the typed text search) into one browse card shape.
+function toBrowseOffering(raw: Record<string, unknown>): BrowseOffering {
+  const kind = raw.kind;
+  const mode = raw.registration_mode;
+  const status = raw.registration_status;
+  const level = raw.level;
+  return {
+    offering_id: asString(raw.offering_id) || asString(raw.id),
+    course_code: asString(raw.course_code) || asString(raw.code),
+    course_title: asString(raw.course_title) || asString(raw.title),
+    department_id: asString(raw.department_id),
+    department_name: asString(raw.department_name),
+    level: typeof level === "number" ? level : asString(level),
+    kind: kind === "general" ? "general" : "departmental",
+    registration_mode:
+      mode === "auto" || mode === "approval" || mode === "closed"
+        ? mode
+        : "open",
+    registration_status:
+      status === "pending" || status === "approved" || status === "rejected"
+        ? status
+        : "none",
+    lecturers: Array.isArray(raw.lecturers)
+      ? raw.lecturers.filter((name): name is string => typeof name === "string")
+      : [],
+    is_registered: raw.is_registered === true,
+    is_pending: raw.is_pending === true,
+  };
+}
+
 export function FindClasses() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -914,16 +967,50 @@ export function FindClasses() {
         ? [{ id: department.id, name: department.name }]
         : [],
     ) ?? [];
-  const searchParams = new URLSearchParams({ q: debouncedQuery });
+  const searchTerm = debouncedQuery.trim();
+  const searching = searchTerm !== "";
+  // Default browse list — already scoped to the student's level and department.
+  // No query param; never hit /offerings/search with an empty q (it 400s).
+  const browse = useApiResource<OfferingsResponse>(
+    searching ? null : "/me/offerings?limit=100&offset=0",
+  );
+  const searchParams = new URLSearchParams({ q: searchTerm });
   if (departmentId) searchParams.set("department_id", departmentId);
   if (level) searchParams.set("level", level);
   if (kind) searchParams.set("kind", kind);
+  // Text search only runs once the student has typed a term (debounced).
   const search = useApiResource<SearchOfferingsResponse>(
-    `/offerings/search?${searchParams.toString()}`,
+    searching ? `/offerings/search?${searchParams.toString()}` : null,
   );
-  const results = search.data?.items ?? [];
+  // The browse list (/me/offerings) carries no registration status, so cross-
+  // reference the student's approved courses and pending requests to mark each
+  // card. A self-registered (open) offering lands in /me/courses immediately.
+  const myCourses = useApiResource<StudentCoursesResponse>("/me/courses");
+  const myPending = useApiResource<PendingRegistrationsResponse>(
+    "/me/registrations",
+  );
+  const approvedOfferingIds = new Set(
+    myCourses.data?.items.map((item) => item.offering_id) ?? [],
+  );
+  const pendingOfferingIds = new Set(
+    myPending.data?.items.map((item) => item.offering_id) ?? [],
+  );
+  const active = searching ? search : browse;
+  const normalized = (active.data?.items ?? []).map((item) =>
+    toBrowseOffering(item as Record<string, unknown>),
+  );
+  // Search sends the filters to the server; the default list is filtered here.
+  const results = searching
+    ? normalized
+    : normalized.filter((offering) => {
+        if (departmentId && offering.department_id !== departmentId)
+          return false;
+        if (level && String(offering.level) !== level) return false;
+        if (kind && offering.kind !== kind) return false;
+        return true;
+      });
 
-  async function register(offering: SearchOffering) {
+  async function register(offering: BrowseOffering) {
     setRegisteringId(offering.offering_id);
     setMutationError("");
     setMutationErrorId("");
@@ -934,7 +1021,12 @@ export function FindClasses() {
         method: "POST",
         },
       );
-      search.reload();
+      active.reload();
+      // Reflect the new registration everywhere this view reads it: an approved
+      // (self-register) course appears in /me/courses, a pending one in
+      // /me/registrations. Other pages re-fetch these on navigation.
+      myCourses.reload();
+      myPending.reload();
       setRegistrationResult({
         id: offering.offering_id,
         status: registration.status,
@@ -1032,18 +1124,24 @@ export function FindClasses() {
             onRetry={departments.reload}
           />
         )}
-        {search.loading ? (
-          <p role="status">Searching classes…</p>
-        ) : search.error ? (
-          <ApiErrorState message={search.error} onRetry={search.reload} />
+        {active.loading ? (
+          <p role="status">
+            {searching ? "Searching classes…" : "Loading classes…"}
+          </p>
+        ) : active.error ? (
+          <ApiErrorState message={active.error} onRetry={active.reload} />
         ) : (
           <div className="browse-count">
             Showing <b>{results.length} classes</b>
           </div>
         )}
         <div className="course-results">
-          {!search.loading && !search.error && results.length === 0 && (
-            <p className="empty-state">No classes match your search.</p>
+          {!active.loading && !active.error && results.length === 0 && (
+            <p className="empty-state">
+              {searching
+                ? "No classes match your search."
+                : "No classes are available for you yet."}
+            </p>
           )}
           {results.map((course) => {
             const actionStatus =
@@ -1051,8 +1149,14 @@ export function FindClasses() {
                 ? registrationResult.status
                 : course.registration_status;
             const closed = course.registration_mode === "closed";
-            const registered = actionStatus === "approved" || course.is_registered;
-            const pending = actionStatus === "pending" || course.is_pending;
+            const registered =
+              actionStatus === "approved" ||
+              course.is_registered ||
+              approvedOfferingIds.has(course.offering_id);
+            const pending =
+              actionStatus === "pending" ||
+              course.is_pending ||
+              pendingOfferingIds.has(course.offering_id);
             return (
             <article className="course-result" key={course.offering_id}>
               <div className="course-monogram">

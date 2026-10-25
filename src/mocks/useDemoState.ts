@@ -13,6 +13,8 @@ const EMPTY_DEMO_STATE: DemoState = {
   attendance: [],
   enrollments: [],
   pendingRegistrations: [],
+  teachingRequests: [],
+  devices: [],
   auditEvents: [],
 };
 

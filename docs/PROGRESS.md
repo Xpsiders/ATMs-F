@@ -43,9 +43,10 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Lecturer | Lecturer enrolment                                                                                   | Placeholder | No lecturer enrolment flow is implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Admin    | Import students / CSV preview and commit                                                             | Placeholder | Student CSV import is not present.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Admin    | Import staff / CSV preview and atomic commit                                                         | Done        | Upload, size/type validation, server preview, row-error display, and commit gating are wired to `/imports/staff/preview` and `/imports/staff`. The API revalidates and commits atomically; mock preview/commit validates the documented headers and returns 422 for invalid rows.                                                                                                                                                                                                                                                                          |
-| Admin | Courses and offerings management | Partial | Department, faculty, and institution admins can browse scoped offerings through `/offerings/search`, create scoped courses through `POST /courses`, and add lecturers using `GET`/`PUT /offerings/{id}/lecturers`. Lecturer assignment retains existing account IDs before the replacement `PUT`. The generated request types drive payloads; department admins are fixed to their department, while faculty/institution admins select from `GET /departments` and the backend validates scope. Lecturer names, debounced search, loading, empty, and retryable error states are included. This is not a staff directory and does not implement course/offering edit or archive. |
+| Admin | Courses and offerings management | Partial | Department, faculty, and institution admins can browse scoped offerings through `/offerings/search`, create scoped courses through `POST /courses`, and add lecturers using `GET`/`PUT /offerings/{id}/lecturers`. Lecturer assignment retains existing account IDs before the replacement `PUT`. The generated request types drive payloads; department admins are fixed to their department, while faculty/institution admins select from `GET /departments` and the backend validates scope. Lecturers are chosen with a type-to-search directory picker (`GET /users?role=lecturer`) instead of a hand-typed UUID. Lecturer names, debounced search, loading, empty, and retryable error states are included. This is not a staff directory and does not implement course/offering edit or archive. |
+| Admin    | Teaching request review                                                                              | Done        | Scoped admins list cross-department teaching requests from `GET /teaching-requests` and approve/reject with `PATCH /teaching-requests/{id}`; approval creates the offering backend-side. Loading, empty, error, and status-badge (icon + text) states are implemented. The mock seeds one pending request and removes it on review. |
 | Admin    | Venue management                                                                                     | Done        | Scoped venue create/update/deactivate and loading, empty, and error states use `/venues`; data refreshes from the list after mutations because mutation response fields are unspecified. Scanner/device-key registration remains unimplemented.                                                                                                                                                                                                                                                                                                            |
-| Admin    | Users and role assignment                                                                            | Partial     | Role assignment posts generated user/role/scope payloads and surfaces API errors. User and scope IDs are entered manually because the contract has no lookup endpoint; broader user management remains unimplemented.                                                                                                                                                                                                                                                                                                                                      |
+| Admin    | Users and role assignment                                                                            | Partial     | Role assignment posts generated user/role/scope payloads and surfaces API errors. The user is chosen with a type-to-search directory picker (`GET /users`); the scope ID is still entered manually (no scope-lookup endpoint). Broader user management remains unimplemented.                                                                                                                                                                                                                                                                              |
 | Admin    | Academic calendar                                                                                    | Done        | Lists and creates/updates/deletes academic sessions and semesters using generated request/response types; loading, empty, and error states are present. Generic catalogue items guarantee only IDs, so labels/dates are shown when returned.                                                                                                                                                                                                                                                                                                               |
 | Admin    | Department dashboard                                                                                 | Placeholder | Summary text only; no dashboard data flow.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Admin    | Institution dashboard                                                                                | Placeholder | Summary text only; no dashboard data flow.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -340,3 +341,332 @@ the local report references.
 
 This archive covers sessions started in this browser. The API contract still
 has no endpoint to list prior sessions started on another device.
+
+## Teaching request review and offering-creation authorization
+
+Aligned the admin workspace with the backend offering/teaching-request API map.
+
+Offering-creation authorization was re-checked against the contract.
+`POST /offerings` (`createOffering`) carries only `BearerAuth` with no role
+restriction; the server gates it and returns `403` when the caller cannot
+create for the course. The admin create flow therefore correctly allows
+department, faculty, and institution admins to create offerings, so no change
+was needed there.
+
+Running `pnpm sync:api` against the local backend spec at `../ATMs` was
+attempted but **not applied**: that spec is behind the committed contract. It
+introduces duplicate `"500"` response keys (invalid YAML, which blocks
+`gen:api`) and deletes the `OfferingLecturer` schema, downgrading
+`GET /offerings/{id}/lecturers` to an untyped object and breaking the typed
+lecturer-assignment code. The committed `api/openapi.yaml` was restored; the
+backend spec needs those fixes before a future sync.
+
+Added the previously missing teaching-request review screen. Scoped admins
+(department/faculty/institution) see `/admin/teaching-requests`, which lists
+pending cross-department requests from `GET /teaching-requests` and approves or
+rejects a selected request with `PATCH /teaching-requests/{id}`. Approval
+creates the offering and lecturer assignment on the backend. Each row shows the
+course, requesting lecturer, and a status badge with an icon and text. The mock
+seeds one pending request and removes it on review; demo reset restores it.
+
+## Directory pickers for lecturer and administrator assignment
+
+Replaced the three hand-typed account-UUID inputs in the admin workspace with a
+type-to-search directory picker. The backend added `GET /users`
+(`listDirectoryUsers`), synced into `api/openapi.yaml` via `pnpm sync:api`; the
+same sync collapsed the earlier duplicate `"500"` response keys, so type
+generation now succeeds and `OfferingLecturer` stays typed.
+
+A reusable `UserSearchSelect` (`src/shared/ui/UserSearchSelect.tsx`) debounces
+input and calls `GET /users?q=&role=&department_id=`, shows matching users
+(name + email) in a listbox, and reports the chosen `id` to its parent; once a
+user is picked it shows a chip with a Change control. It now backs:
+- the optional lecturer on the unified course/offering create form
+  (`role=lecturer`),
+- the Add-lecturer control in Manage lecturers (`role=lecturer`), and
+- the user in Administrator roles (no role filter).
+
+Native `required` on those inputs was replaced with explicit guards in the
+submit handlers and a disabled Add-lecturer button, since the picker reports a
+value only when a row is chosen.
+
+The mock seeds a 14-lecturer directory spread across Computer Engineering,
+Electrical Engineering, and General Studies, and `GET /users` filters it by
+`q`, `role`, and `department_id`. As with the other mock admin endpoints, the
+mock gates on the admin role rather than enforcing the full per-scope filtering
+the real backend applies.
+
+| Command | Result |
+| --- | --- |
+| `pnpm sync:api` | Passed; copied the backend spec and regenerated `src/api/schema.d.ts`. The sync added `/users` + `DirectoryUser` and fixed the duplicate `"500"` keys; `OfferingLecturer` remains typed. |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 72 tests passed, including the three migrated create/assign tests now driving the picker and a new directory-search test spanning departments. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **64.81 kB / 13.68 kB gzip**; JS chunks were **389.89 kB / 116.50 kB**, **38.10 kB / 9.47 kB**, and **31.94 kB / 8.95 kB gzip**. |
+
+## Registration-mode toggle on offering creation
+
+The backend expanded the `registration_mode` description on `POST /offerings`
+(enum unchanged: `auto`, `open`, `approval`, `closed`), documenting the two
+primary modes as a Self-register / Needs approval toggle with `auto`/`closed`
+as advanced. Synced via `pnpm sync:api`.
+
+The create offering/course form now presents a segmented toggle instead of a
+four-option dropdown: **Self-register** (`open`, students approved immediately)
+and **Needs approval** (`approval`, a lecturer or admin reviews each request),
+with an "Advanced registration modes" disclosure exposing **Automatic enrolment**
+(`auto`) and **Closed** (`closed`). A helper line describes the selected mode.
+The default stays `open`. The submitted `registration_mode` value is unchanged,
+so no payload or endpoint behavior changed.
+
+| Command | Result |
+| --- | --- |
+| `pnpm sync:api` | Passed; regenerated types from the updated `registration_mode` description. |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 72 tests passed; the offering-creation test now selects the "Needs approval" toggle. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **65.37 kB / 13.79 kB gzip**; JS chunks were **389.89 kB / 116.49 kB**, **39.18 kB / 9.73 kB**, and **31.94 kB / 8.95 kB gzip**. |
+
+## Blue / gold / white interaction redesign and dark-mode fix
+
+Reworked the interactive design system around a theme-aware accent so the
+palette reads as blue / gold / white in both themes, and fixed dark-mode
+contrast where blue text sat on the navy surface.
+
+New tokens in `src/styles/tokens.css`: `--accent` / `--accent-hover` /
+`--on-accent` (light = blue, dark = gold), gold CTA tokens (`--cta`,
+`--cta-hover`, `--on-cta`), `--ring` (blue in light, gold in dark), shadow
+tokens, and a shared `--ease`. In dark mode `--blue-700` now resolves to a
+readable light blue (`#9db8ff`) so the many blue accent/label texts are legible;
+the brand mark was pinned to `--navy-800` so it stays a deep blue regardless.
+
+Interaction changes in `src/app/app.css`:
+- Primary buttons are now gold with navy text (the hero accent), with a hover
+  lift and shadow; secondary buttons gain an accent border on hover; all buttons
+  get a focus-visible ring and a disabled state.
+- Link/text buttons use `--accent`, so they are blue in light and gold in dark
+  (the previously unreadable blue-on-navy links), with a focus ring.
+- Inputs get a focus ring and border transition; the segmented registration
+  toggle's active state uses the accent (blue in light, gold in dark); the
+  pending status pill uses theme-aware warning tokens; directory results fade in
+  and option names use `--ink`.
+- Motion: shared easing, button/link/input/segmented transitions, hover lifts,
+  a `fade-rise` entrance on page headings, panels, and summary strips, and a
+  `pop-in` on the search dropdown — all disabled under
+  `prefers-reduced-motion`.
+
+### Login entrance + ambient app motion
+
+Added richer, still-restrained motion on top of the redesign (all in
+`src/app/app.css`, all gated by `prefers-reduced-motion`):
+- Login screen: staggered `login-rise` entrance on the brand, eyebrow, headline,
+  sub-copy and (via `.login-form > *:nth-child`) the form controls, plus a slow
+  90s rotation (`login-spin`) on the decorative ring so the panel feels alive.
+- Authenticated app shell: an ambient drifting glow layer (`.app-shell::before`,
+  `@keyframes ambient-drift`, ~28s) — a soft blue glow upper-left and a warm gold
+  glow lower-right that slowly drift/scale behind the content. Alpha is higher in
+  dark (aurora) and very subtle in light. `.app-shell` is `position: relative`
+  and `.main-column` gets `z-index: 1` so content stays above the layer.
+- Hardened reduced-motion: the global `prefers-reduced-motion` block now also
+  zeroes `animation-delay`, so staggered/ambient elements never hold their hidden
+  start frame during a delay.
+
+Verified in a headless Chrome run (`pnpm dev:mock` with `VITE_USE_MOCKS=true`): a
+mid-animation login frame shows the staggered text still rising; the settled
+login and the `/admin` shell (light + dark) show the ambient glow in place.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 72 tests passed (no behavioral change). |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **71.76 kB / 15.09 kB gzip**; JS chunks were **389.89 kB / 116.49 kB**, **39.18 kB / 9.73 kB**, and **31.94 kB / 8.95 kB gzip**. |
+
+#### Earlier redesign run (before the login/ambient motion)
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 72 tests passed (no behavioral change). |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **67.77 kB / 14.29 kB gzip**; JS chunks were **389.89 kB / 116.49 kB**, **39.18 kB / 9.73 kB**, and **31.94 kB / 8.95 kB gzip**. |
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | 70 passed, including the new "lists teaching requests and approves one as a scoped admin" test. 1 pre-existing failure, "renders the home screen from backend live, timetable, and course data", is time-of-day dependent (its `campusClockAfter` slots cross midnight late at night) and fails identically on the clean committed tree; it is unrelated to this change. |
+| `pnpm build` | Passed; Vite transformed 310 modules. CSS was **63.75 kB / 13.52 kB gzip**; JS chunks were **389.89 kB / 116.49 kB**, **36.02 kB / 8.78 kB**, and **31.94 kB / 8.95 kB gzip**. |
+
+## Scanner (device) management UI
+
+Built the scanner-management workspace against the backend `/devices` contract
+(synced via `pnpm sync:api`, which added `listDevices`, `provisionDevice`,
+`regenerateDevicePairingCode`, `rotateDeviceKey`, `revokeDevice`,
+`enqueueDeviceEnrolment` plus the `DeviceListItem` / `ProvisionedDevice` /
+`PairingCode` / `EnrolmentEnqueueResponse` schemas). All calls use the normal
+Bearer session; the web app never handles device keys. New "Scanners" nav entry
+and `/scanners` route are available to lecturers and administrators (the server
+authorizes by scope). Live-verified in headless Chrome (list, provision → pairing
+modal, light + dark).
+
+- New `ScannerAdministration` component in `src/features/admin/pages/index.tsx`:
+  - **List** (`GET /devices`): each scanner shows name, venue, a status badge
+    (icon + text — unpaired = amber "Awaiting pairing", active = green, revoked =
+    grey), relative last-seen, health (firmware / battery / queue) when present,
+    and "pairing code pending (expires …)" when a code is outstanding. A list-level
+    403 shows a no-access panel instead of an error.
+  - **Provision** (`POST /devices`): venue picker (from `GET /venues`) + name;
+    the returned `pairing_code` is shown exactly once in a modal — large, copyable,
+    with its expiry and the "will not be shown again" note. Hidden when the venue
+    directory returns 403.
+  - **Re-pair / rotate**: "Issue pairing code" (`POST /devices/{id}/pairing-code`)
+    for unpaired scanners and "Rotate key" (`POST /devices/{id}/rotate-key`, behind
+    a confirm warning the scanner goes offline until re-paired) both surface a new
+    code in the same once-only modal.
+  - **Revoke** (`DELETE /devices/{id}`) behind a confirm; the row becomes
+    "Revoked".
+  - **Enrol a student** (`POST /devices/{id}/enrolments`): inline student picker
+    (`UserSearchSelect` with `role="student"`); on success shows "Queued on slot N"
+    with the finger-placement instruction. No firmware-facing screens were built.
+- Error codes surfaced in `src/api/errors.ts`: `device_scope_denied`,
+  `device_not_found`, `student_not_found`, `invalid_request`.
+- Typed contracts added in `src/api/contracts.ts`; derived only from the generated
+  schema. Mock support added in `src/mocks/store.ts` (two seeded scanners, a
+  student directory for the picker, and the device CRUD/enrolment functions),
+  `src/mocks/handlers.ts` (all six routes, scope-gated to admins + lecturers), and
+  `src/mocks/useDemoState.ts`. New CSS: device-row layout, status-pill variants,
+  the pairing-code block, and a real `.button-row` rule (it had none, so action
+  links were running together).
+- Two new tests in `src/app/App.test.tsx`: provisioning shows the pairing code
+  once, and enrolling a student reports the slot.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 74 tests passed (2 new scanner tests). |
+| `pnpm build` | Passed; Vite transformed 311 modules. CSS was **72.72 kB / 15.29 kB gzip**; the admin chunk grew to **48.33 kB / 12.00 kB gzip**; main JS **391.84 kB / 116.99 kB gzip**. |
+
+## Live academic term in the top bar
+
+Replaced the hard-coded "2024 / 2025 · Semester 2" term pill with a `TermPill`
+component in `src/app/App.tsx` that derives the active term from the backend.
+
+- On mount it fetches `GET /academic-sessions` and `GET /semesters` (both open to
+  any authenticated role — students, lecturers and admins) and picks the current
+  session as the one flagged `current`, else the one whose `starts_on`/`ends_on`
+  range covers today, else the most recent; the current semester is chosen the
+  same way within that session. Session/semester fields come through the open
+  `CatalogueItem` (`additionalProperties`), so they are read defensively.
+- It renders `"<session> · <semester>"` and renders nothing while loading, on
+  error, or when the backend has no calendar yet (so no stale term is shown).
+- Mock support: `src/mocks/store.ts` now seeds a current academic session
+  ("2026 / 2027", `current: true`) with Semester 1 (covers today) and Semester 2,
+  restored on `resetDemoData`. Verified in headless Chrome: the pill shows
+  "2026 / 2027 · Semester 1" for admin, lecturer and student.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 74 tests passed. |
+| `pnpm build` | Passed; Vite transformed 311 modules. CSS **72.87 kB / 15.31 kB gzip**; main JS **393.30 kB / 117.47 kB gzip**. |
+
+## Delete a course (admin or higher)
+
+Wired the backend `DELETE /courses/{id}` (`deleteCourse`, synced via
+`pnpm sync:api`) into the admin Courses & offerings page. The endpoint is
+admin-scoped and generic — it deletes whichever catalogue course the admin
+selects, not a fixed one.
+
+- **UI** (`src/features/admin/pages/index.tsx`, `CoursesAndOfferings`): when an
+  existing course is chosen in the Course picker, a delete row appears with a red
+  "Delete course" action and a note that a course with offerings must have them
+  removed first. It opens a confirm dialog; on success the course is removed, the
+  picker resets to "Create a new course…", and the catalogue reloads.
+- **Contract handling**: 204 → "… was deleted"; 409 `course_has_offerings` →
+  "Remove this course's offerings before deleting it." (the backend forbids
+  deleting a course that still has offerings); 404 `course_not_found` and 403 are
+  surfaced via `presentApiError`. New codes added to `src/api/errors.ts`.
+- **Mock**: `deleteDemoCourse` in `src/mocks/store.ts` returns
+  `deleted`/`has_offerings`/`not_found`; `DELETE /courses/:id` handler in
+  `src/mocks/handlers.ts` is gated to admins. Courses derived from seeded
+  offerings correctly return 409; a seeded offering-free course ("CSC 110 ·
+  Introduction to Computing") demonstrates the 204 path. Both restored on reset.
+- **Tests** (`src/app/App.test.tsx`): deletes a course with no offerings; blocks
+  deleting a course that still has offerings (409). Verified live in headless
+  Chrome for both paths.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 77 tests passed (2 new course-delete tests). |
+| `pnpm build` | Passed; CSS **73.21 kB / 15.37 kB gzip**. |
+
+### Delete an offering (completes the two-step removal)
+
+Added `DELETE /offerings/{id}` (`deleteOffering`) so an admin can remove a
+course's offerings, after which the freed course can be deleted — the proper
+two-step flow the course-delete 409 points to.
+
+- **UI**: each offering row in the Courses list now has a red "Delete offering"
+  action beside "Manage lecturers", with a confirm dialog ("removes the offering
+  and its lecturer assignments; attendance already recorded is kept"). On success
+  the offerings list and the course catalogue both reload (so the now
+  offering-free course is immediately deletable), and any open lecturer manager
+  for that offering closes. 403/404 surfaced via `presentApiError`.
+- **Mock**: `deleteDemoOffering` in `src/mocks/store.ts` removes the offering and
+  its lecturer assignments; because the demo derives catalogue courses from
+  offerings, it promotes the now offering-free course into the standalone
+  catalogue so the two-step flow works (and the course then deletes cleanly).
+  `DELETE /offerings/:id` handler in `src/mocks/handlers.ts` is admin-gated.
+- **Test**: "deletes an offering, then the freed course can be deleted" exercises
+  the whole flow; verified live in headless Chrome (ENG 301 offering removed →
+  course stayed offering-free → course deleted and gone from the catalogue).
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 78 tests passed (1 new offering-delete flow test). |
+| `pnpm build` | Passed; CSS **73.21 kB / 15.37 kB gzip**. |
+
+## Reflect a self-registered course immediately
+
+A student self-registering for an `open` offering is approved immediately
+(`POST /offerings/{id}/registrations` → `status: "approved"`, `on_roster: true`),
+but it didn't show as registered in the Find-a-class browse view.
+
+Root cause (from the contract): the default browse list is `GET /me/offerings`,
+whose schema (`CatalogueItem` + `{session_open, next_timetable_slot}`) carries
+**no** registration status — only `GET /offerings/search` returns
+`is_registered`/`registration_status`. So the browse card had no server signal
+that the student was registered.
+
+Fix in `src/features/student/pages/index.tsx` (`FindClasses`):
+- Also read `GET /me/courses` (approved registrations) and `GET /me/registrations`
+  (pending requests) and build sets of their `offering_id`s. Each browse card is
+  marked **Registered** when its id is in the approved set (or the just-registered
+  result is approved) and **Pending** when in the pending set — so both
+  already-registered and just-registered courses render correctly.
+- On a successful registration the view now reloads `/me/courses` and
+  `/me/registrations` (alongside the active browse/search list), so an open
+  self-registration flips to "Registered" without a manual refresh.
+
+The dashboard, My courses, History and timetable already read `/me/courses`,
+`/me/live-classes` and `/me/timetable` (which, per the contract, return approved
+registrations) and re-fetch on mount, so an approved self-registration appears
+there on navigation — no change needed, confirmed against the spec.
+
+- **Test** (`src/app/App.test.tsx`): "marks a browse offering as registered when
+  it is in the student's approved courses" — proves the browse card reflects the
+  `/me/courses` state (the same source the dashboard uses).
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 13 test files and all 79 tests passed (1 new; one admin test is occasionally flaky under load and passes on re-run). |
+| `pnpm build` | Passed; CSS **73.21 kB / 15.37 kB gzip**. |
