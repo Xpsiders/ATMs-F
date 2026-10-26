@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRequest, setAccessToken } from "@/shared/lib/apiClient";
 import { ApiError, presentApiError } from "@/api/errors";
@@ -20,6 +20,8 @@ import type {
   RequestPasswordReset,
   RequestPasswordResetResponse,
   ResetPasswordRequest,
+  PublicDepartment,
+  PublicDepartmentsResponse,
   SignupClaimRequest,
   SignupVerifyRequest,
 } from "@/api/contracts";
@@ -246,6 +248,49 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
     import.meta.env.DEV &&
     (import.meta.env.MODE === "mock" ||
       import.meta.env.VITE_USE_MOCKS === "true");
+  const [departments, setDepartments] = useState<PublicDepartment[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentsError, setDepartmentsError] = useState("");
+  const [departmentsReloadKey, setDepartmentsReloadKey] = useState(0);
+  const institutionId =
+    import.meta.env.VITE_INSTITUTION_ID ??
+    (isMock ? DEMO_INSTITUTION_ID : undefined);
+  // The claim screen is pre-login: load the institution's departments from the
+  // public, unauthenticated endpoint so students pick a name, never a UUID.
+  useEffect(() => {
+    if (type !== "signup") return;
+    if (!institutionId) {
+      setDepartmentsError("Set VITE_INSTITUTION_ID to load departments.");
+      return;
+    }
+    const base =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    const controller = new AbortController();
+    setDepartmentsLoading(true);
+    setDepartmentsError("");
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${base}/public/departments?institution_id=${encodeURIComponent(
+            institutionId,
+          )}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok)
+          throw new Error("We couldn't load the department list.");
+        const body = (await response.json()) as PublicDepartmentsResponse;
+        setDepartments(body.items ?? []);
+      } catch (caught) {
+        if ((caught as { name?: string }).name === "AbortError") return;
+        setDepartmentsError(
+          "We couldn't load the department list. Please try again.",
+        );
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [type, institutionId, departmentsReloadKey]);
   const heading =
     type === "signup"
       ? "Claim your student account"
@@ -275,6 +320,10 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
         .safeParse({ matric, email });
       if (!valid.success) {
         setMessage("Enter a valid matric number and campus email.");
+        return;
+      }
+      if (!departmentId) {
+        setMessage("Select your department.");
         return;
       }
     }
@@ -504,15 +553,46 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
                 required
               />
               <label className="field-label" htmlFor="claim-department">
-                Department ID
+                Department
               </label>
-              <input
-                className="field-control"
-                id="claim-department"
-                value={departmentId}
-                onChange={(event) => setDepartmentId(event.target.value)}
-                required
-              />
+              {departmentsError ? (
+                <div className="form-info" role="alert">
+                  {departmentsError}
+                  {institutionId && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() =>
+                        setDepartmentsReloadKey((key) => key + 1)
+                      }
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <select
+                  className="field-control"
+                  id="claim-department"
+                  value={departmentId}
+                  onChange={(event) => setDepartmentId(event.target.value)}
+                  required
+                  disabled={departmentsLoading || departments.length === 0}
+                >
+                  <option value="" disabled>
+                    {departmentsLoading
+                      ? "Loading departments…"
+                      : "Select your department"}
+                  </option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.code
+                        ? `${department.name} (${department.code})`
+                        : department.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </>
           )}
           {(type === "verify" ||
@@ -602,7 +682,12 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
             <button
               className="button primary-button login-submit"
               type="submit"
-              disabled={pending}
+              disabled={
+                pending ||
+                (type === "signup" &&
+                  step === "identity" &&
+                  (departmentsLoading || departmentsError !== ""))
+              }
             >
               {pending
                 ? "Please wait…"

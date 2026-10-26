@@ -19,6 +19,7 @@ import type {
   OfferingLecturersResponse,
   OfferingsResponse,
   PendingRegistrationsResponse,
+  PublicDepartmentsResponse,
   RegistrationResponse,
   SearchOfferingsQuery,
   SearchOfferingsResponse,
@@ -533,6 +534,25 @@ export function listDemoOfferings(lecturerName?: string): OfferingsResponse {
     limit: offerings.length,
     offset: 0,
     has_more: false,
+  };
+}
+
+const DEMO_DEPARTMENT_CODES: Record<string, string> = {
+  "Computer Engineering": "CPE",
+  "Electrical Engineering": "EEE",
+  "General Studies": "GST",
+};
+
+export function listDemoPublicDepartments(): PublicDepartmentsResponse {
+  const names = [
+    ...new Set(demoState.offerings.map((offering) => offering.department)),
+  ].sort((a, b) => a.localeCompare(b));
+  return {
+    items: names.map((name) => ({
+      id: demoDepartmentId(name),
+      name,
+      code: DEMO_DEPARTMENT_CODES[name] ?? name.slice(0, 3).toUpperCase(),
+    })),
   };
 }
 

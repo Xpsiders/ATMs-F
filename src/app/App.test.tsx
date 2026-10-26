@@ -174,6 +174,45 @@ describe("Campus Attendance screens", () => {
     ).toHaveAttribute("href", "/lecturer");
   });
 
+  it("loads departments on the claim screen and submits the chosen id", async () => {
+    const user = userEvent.setup();
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    let claimBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post(`${apiBaseUrl}/auth/signup-claim`, async ({ request }) => {
+        claimBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { status: "verification_sent" },
+          { status: 202 },
+        );
+      }),
+    );
+    renderApp("/signup", false);
+
+    // The picker is populated from GET /public/departments (no UUID typing).
+    const deptSelect = await screen.findByRole("combobox", {
+      name: "Department",
+    });
+    await user.type(screen.getByLabelText("Matric number"), "2021/18420");
+    await user.type(
+      screen.getByLabelText("Campus email"),
+      "amara@campus.example",
+    );
+    await user.selectOptions(
+      deptSelect,
+      await within(deptSelect).findByRole("option", {
+        name: /Computer Engineering \(CPE\)/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => expect(claimBody).not.toBeNull());
+    expect(claimBody?.department_id).toBe(
+      "10000000-0000-4000-8000-000000000004",
+    );
+  });
+
   it("renders the home screen from backend live, timetable, and course data", async () => {
     // Freeze to mid-day Lagos so relative slot times never wrap past midnight
     // (only Date is faked, so debounce/async timers stay real). CI runs in UTC

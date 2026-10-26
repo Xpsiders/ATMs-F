@@ -30,6 +30,9 @@ export type SetOfferingLecturersResponse =
   operations["setOfferingLecturers"]["responses"][200]["content"]["application/json"];
 export type DepartmentCatalogueResponse =
   operations["listDepartments"]["responses"][200]["content"]["application/json"];
+export type PublicDepartmentsResponse =
+  operations["listPublicDepartments"]["responses"][200]["content"]["application/json"];
+export type PublicDepartment = PublicDepartmentsResponse["items"][number];
 export type CatalogueListResponse =
   operations["listCourses"]["responses"][200]["content"]["application/json"];
 export type CatalogueItem = components["schemas"]["CatalogueItem"];

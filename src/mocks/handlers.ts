@@ -34,6 +34,7 @@ import {
   createDemoCourse,
   deleteDemoCourse,
   deleteDemoOffering,
+  listDemoPublicDepartments,
   createDemoOffering,
   createDemoSemester,
   createDemoVenue,
@@ -105,7 +106,22 @@ function denyDeviceScope() {
 
 const DEMO_SIGNUP_REQUESTS: NonNullable<SignupRequestsResponse["items"]> = [];
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const handlers = [
+  http.get(`${apiBaseUrl}/public/departments`, ({ request }) => {
+    const institutionId = new URL(request.url).searchParams.get(
+      "institution_id",
+    );
+    if (!institutionId || !UUID_RE.test(institutionId))
+      return apiError(
+        400,
+        "invalid_request",
+        "A valid institution_id is required.",
+      );
+    return HttpResponse.json(listDemoPublicDepartments());
+  }),
   http.post(`${apiBaseUrl}/auth/password/forgot`, async ({ request }) => {
     const payload = (await request.json()) as RequestPasswordReset;
     requestDemoPasswordReset(payload.email);

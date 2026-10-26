@@ -6,6 +6,41 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /public/departments:
+    get:
+      operationId: listPublicDepartments
+      summary: List an institution's departments (unauthenticated)
+      description: Read-only department id/name/code for the pre-login claim and signup screens, so they can show a department name picker instead of asking for a UUID. Scoped to the given institution.
+      security: []
+      parameters:
+        - name: institution_id
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Departments in the institution.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, code]
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+                        code: {type: string}
+        "400":
+          description: Missing or invalid institution_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /healthz:
     get:
       operationId: getHealth
@@ -1214,7 +1249,7 @@ paths:
                 programme_id: {type: string, format: uuid}
                 display_name: {type: string, minLength: 1, maxLength: 200}
       responses:
-        "200": {description: Request reviewed; approval requires department_id, level, programme_id, and display_name, creates the student record, and writes an audit event.}
+        "200": {description: "Request reviewed; approval requires department_id, level, programme_id, and display_name, creates the student record, and writes an audit event."}
         "400": {$ref: "#/components/responses/InvalidJSON"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {description: Request is outside caller department scope., content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}}
@@ -2529,7 +2564,7 @@ paths:
         "202": {description: Teaching request created because the lecturer does not own the course's department., content: {application/json: {schema: {type: object, required: [status, teaching_request_id], properties: {status: {type: string, enum: [pending]}, teaching_request_id: {type: string, format: uuid}}}}}}
         "400": {$ref: "#/components/responses/InvalidJSON"}
         "401": {$ref: "#/components/responses/Unauthorized"}
-        "403": {description: Caller is neither an administrator over the course's department nor a lecturer, so cannot create an offering for this course., content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}}
+        "403": {description: "Caller is neither an administrator over the course's department nor a lecturer, so cannot create an offering for this course.", content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}}
   /offerings/{id}:
     get:
       operationId: getOffering
@@ -2895,10 +2930,18 @@ paths:
             schema:
               type: object
               required: [status]
+              additionalProperties: false
               properties:
                 status:
                   type: string
                   enum: [done, failed]
+                template:
+                  type: string
+                  description: >-
+                    Base64-encoded fingerprint template exported from the sensor.
+                    Send it with status=done so the backend stores it centrally
+                    and other scanners can recognise this student (multi-venue).
+                    Optional; omit to keep the print local to this sensor only.
       responses:
         "204":
           description: Enrolment task completed.
@@ -2924,6 +2967,7 @@ paths:
     post:
       operationId: pairDevice
       summary: Redeem a pairing code for a permanent device key
+      security: [] # public: the device has no key yet
       description: >-
         Called once by scanner firmware on first boot with the pairing code that
         was flashed into the image. Returns the permanent device key the firmware
@@ -2984,6 +3028,50 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           $ref: "#/components/responses/InvalidDeviceKey"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /device/templates/sync:
+    post:
+      operationId: syncDeviceTemplates
+      summary: Load the session roster's fingerprint templates onto the scanner
+      description: >-
+        Returns the central fingerprint templates for the roster of the session
+        currently open at this scanner's venue (or the session_id given), each
+        with the integer slot position the scanner should load it into. The
+        backend provisions/persists that slot map, so later scans reference each
+        student by slot_number. Call this when a session starts; a scanner enrols
+        on any sensor but is recognised wherever its roster is synced.
+      security:
+        - DeviceKey: []
+      parameters:
+        - name: session_id
+          in: query
+          required: false
+          description: The session whose roster to load. Defaults to the session currently open at the device's venue.
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Roster templates and their slot positions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTemplateSync"
+        "400":
+          description: Invalid session_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/InvalidDeviceKey"
+        "409":
+          description: No open session at this device's venue (and no session_id given).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -3142,7 +3230,10 @@ components:
             properties:
               role: {type: string}
               scope_type: {type: string}
-              scope_id: {type: string, format: uuid, nullable: true}
+              scope_id:
+                oneOf:
+                  - {type: string, format: uuid}
+                  - {type: "null"}
     TimetableSlot:
       type: object
       required: [id, offering_id, venue_id, weekday, starts_at, ends_at]
@@ -3609,7 +3700,7 @@ components:
           format: uuid
     PendingEnrolment:
       type: object
-      required: [id, student_ref, slot_id]
+      required: [id, student_ref, slot_id, slot_number]
       properties:
         id:
           type: string
@@ -3619,14 +3710,20 @@ components:
         slot_id:
           type: string
           format: uuid
+        slot_number:
+          description: The integer sensor position (1-based) to enrol this student into. Null only if the task has no assigned slot.
+          oneOf:
+            - {type: integer, minimum: 1}
+            - {type: "null"}
     DeviceScanRequest:
       type: object
-      required: [slot_id, confidence]
+      required: [slot_number, confidence]
       additionalProperties: false
       properties:
-        slot_id:
-          type: string
-          format: uuid
+        slot_number:
+          type: integer
+          minimum: 1
+          description: The integer sensor position the fingerprint matched, as assigned by enrolment or template sync.
         confidence:
           type: number
           minimum: 0
@@ -3634,6 +3731,7 @@ components:
         client_scanned_at:
           type: string
           format: date-time
+          description: Omit for a live scan; set to the capture time (RFC3339) only when flushing a queued offline scan.
     DeviceScanResponse:
       type: object
       properties:
@@ -3750,6 +3848,22 @@ components:
         task_id: {type: string, format: uuid}
         slot_number: {type: integer, minimum: 1}
         status: {type: string, enum: [pending]}
+    DeviceTemplateSync:
+      type: object
+      required: [session_id, slots, server_time]
+      properties:
+        session_id: {type: string, format: uuid}
+        server_time: {type: string, format: date-time}
+        slots:
+          type: array
+          items:
+            type: object
+            required: [slot_number, student_record_id, student_ref, template]
+            properties:
+              slot_number: {type: integer, minimum: 1, description: Sensor position to load this template into.}
+              student_record_id: {type: string, format: uuid}
+              student_ref: {type: string, description: "The student's matric number, for display/logging."}
+              template: {type: string, description: Base64-encoded fingerprint template to load into the sensor at slot_number.}
   responses:
     InvalidJSON:
       description: Request JSON is invalid or contains unknown fields.
