@@ -175,6 +175,10 @@ describe("Campus Attendance screens", () => {
   });
 
   it("renders the home screen from backend live, timetable, and course data", async () => {
+    // Freeze to mid-day Lagos so relative slot times never wrap past midnight
+    // (only Date is faked, so debounce/async timers stay real). CI runs in UTC
+    // at arbitrary times, which otherwise makes this time-of-day dependent.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-21T11:00:00Z") });
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
     const campusClockAfter = (minutesFromNow: number) => {
@@ -296,6 +300,8 @@ describe("Campus Attendance screens", () => {
   });
 
   it("does not call a populated past timetable empty", async () => {
+    // Freeze to mid-day Lagos so "minutes ago" never wraps to the previous day.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-21T11:00:00Z") });
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
     const campusClockBefore = (minutesAgo: number) => {

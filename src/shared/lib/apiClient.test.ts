@@ -116,7 +116,10 @@ describe("API client", () => {
       {},
       "http://api.test",
     );
-    expect(blob).toBeInstanceOf(Blob);
+    // Realm-safe Blob check: response.blob() can come from a different realm
+    // than the global Blob (undici vs jsdom, varies by Node version), so
+    // instanceof is unreliable in CI. The internal tag is realm-independent.
+    expect(Object.prototype.toString.call(blob)).toBe("[object Blob]");
     expect(blob.size).toBe("student,attendance\nAmara,present\n".length);
   });
 
@@ -131,7 +134,7 @@ describe("API client", () => {
       { headers: { Accept: "application/pdf" } },
       "http://api.test",
     );
-    expect(blob).toBeInstanceOf(Blob);
+    expect(Object.prototype.toString.call(blob)).toBe("[object Blob]");
     expect(blob.type).toBe("application/pdf");
   });
 });
