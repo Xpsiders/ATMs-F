@@ -265,7 +265,7 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
     }
     const base =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
-    const controller = new AbortController();
+    let cancelled = false;
     setDepartmentsLoading(true);
     setDepartmentsError("");
     void (async () => {
@@ -274,22 +274,23 @@ export function AuthFlow({ type }: { type: AuthFlowType }) {
           `${base}/public/departments?institution_id=${encodeURIComponent(
             institutionId,
           )}`,
-          { signal: controller.signal },
         );
         if (!response.ok)
           throw new Error("We couldn't load the department list.");
         const body = (await response.json()) as PublicDepartmentsResponse;
-        setDepartments(body.items ?? []);
-      } catch (caught) {
-        if ((caught as { name?: string }).name === "AbortError") return;
-        setDepartmentsError(
-          "We couldn't load the department list. Please try again.",
-        );
+        if (!cancelled) setDepartments(body.items ?? []);
+      } catch {
+        if (!cancelled)
+          setDepartmentsError(
+            "We couldn't load the department list. Please try again.",
+          );
       } finally {
-        setDepartmentsLoading(false);
+        if (!cancelled) setDepartmentsLoading(false);
       }
     })();
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, [type, institutionId, departmentsReloadKey]);
   const heading =
     type === "signup"

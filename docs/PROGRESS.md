@@ -670,3 +670,34 @@ there on navigation — no change needed, confirmed against the spec.
 | `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
 | `pnpm test` | Passed; 13 test files and all 79 tests passed (1 new; one admin test is occasionally flaky under load and passes on re-run). |
 | `pnpm build` | Passed; CSS **73.21 kB / 15.37 kB gzip**. |
+
+## Department name picker on the claim/signup screen
+
+Replaced the free-text department UUID input on the student claim screen with a
+name dropdown backed by the new public, unauthenticated endpoint.
+
+- Synced the contract (`pnpm sync:api`) to get `GET /public/departments`
+  (`listPublicDepartments`, `security: []`); added `PublicDepartmentsResponse` /
+  `PublicDepartment` to `src/api/contracts.ts`.
+- `src/features/auth/pages/index.tsx` (`AuthFlow`): on the signup screen it
+  fetches `/public/departments?institution_id=<VITE_INSTITUTION_ID>` with a plain
+  `fetch` (no credentials — the screen is pre-login) and renders a `<select>`
+  whose labels are `name (code)` and whose values are the department `id`. The
+  student never types a UUID; the chosen `id` is sent as `department_id` in the
+  existing `POST /auth/signup-claim`. Loading, error+retry, and "no department
+  selected" are handled, and the submit button is disabled until the list loads.
+  (Used a `cancelled`-flag effect like `useApiResource`, not `AbortController` —
+  an abort signal hangs the fetch under the MSW node interceptor in tests.)
+- Mock: `listDemoPublicDepartments` in `src/mocks/store.ts` (id/name/code, sorted
+  by name) and a public `GET /public/departments` handler in
+  `src/mocks/handlers.ts` that 400s on a missing/invalid `institution_id`.
+- Tests: new `src/features/auth/pages/claim.test.tsx` — the picker loads names
+  from the endpoint, the chosen id is submitted as `department_id`, and a missing
+  institution id shows the guidance message.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 14 test files and all 82 tests passed (3 new claim tests). |
+| `pnpm build` | Passed; `pnpm build` (the Vercel build command) completed, exit 0. |
