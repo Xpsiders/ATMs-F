@@ -30,6 +30,7 @@ import type {
   StudentAttendanceResponse,
   StudentCoursesResponse,
   StudentTimetableResponse,
+  VenueScannerStatusResponse,
 } from "@/api/contracts";
 import {
   clearMockSession,
@@ -942,7 +943,7 @@ describe("Campus Attendance screens", () => {
 
   it("lists scanners and shows a provisioned pairing code once", async () => {
     const user = userEvent.setup();
-    renderApp("/scanners", true, "department-admin");
+    renderApp("/scanners", true, "institution-admin");
 
     expect(
       await screen.findByRole(
@@ -983,7 +984,7 @@ describe("Campus Attendance screens", () => {
 
   it("enrols a student on a scanner and reports the slot", async () => {
     const user = userEvent.setup();
-    renderApp("/scanners", true, "department-admin");
+    renderApp("/scanners", true, "institution-admin");
 
     await screen.findByRole(
       "heading",
@@ -1461,6 +1462,7 @@ describe("Campus Attendance screens", () => {
         ),
       { timeout: 5000 },
     );
+    expect(await screen.findByText("Scanner online")).toBeInTheDocument();
 
     await user.selectOptions(
       await screen.findByRole("combobox", {
@@ -1468,6 +1470,7 @@ describe("Campus Attendance screens", () => {
       }),
       "scanner_offline",
     );
+    expect(await screen.findAllByText("Scanner offline")).not.toHaveLength(0);
     expect(screen.getByText(/Scanner offline from 09:31/)).toBeInTheDocument();
 
     try {
@@ -1485,6 +1488,58 @@ describe("Campus Attendance screens", () => {
       ).not.toBeInTheDocument();
     } finally {
       confirm.mockRestore();
+    }
+  });
+
+  it("shows only safe scanner status for the active session venue", async () => {
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+    let requestedVenueId = "";
+    const response = {
+      status: "no_scanner",
+      last_seen_at: null,
+    } satisfies VenueScannerStatusResponse;
+    expect(Object.keys(response).sort()).toEqual(["last_seen_at", "status"]);
+    server.use(
+      http.get(
+        `${apiBaseUrl}/venues/:id/scanner-status`,
+        ({ params }) => {
+          requestedVenueId = String(params.id);
+          return HttpResponse.json(response);
+        },
+      ),
+    );
+    const session = getDemoState().sessions.find(
+      (candidate) => candidate.state === "live",
+    );
+    if (!session) throw new Error("The demo store has no live session.");
+    renderApp(demoSessionPath("/lecturer/live"));
+
+    expect(
+      await screen.findByText("No scanner at this venue"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Last seen unavailable")).toBeInTheDocument();
+    expect(requestedVenueId).toBe(session.venueId);
+  });
+
+  it("hides scanner management and blocks its route for lecturers and scoped admins", async () => {
+    const roles = [
+      { role: "lecturer", home: "/lecturer" },
+      { role: "department-admin", home: "/admin" },
+      { role: "faculty-admin", home: "/admin" },
+    ] as const;
+    for (const { role, home } of roles) {
+      renderApp(home, true, role);
+      expect(
+        screen.queryByRole("link", { name: "Scanners" }),
+      ).not.toBeInTheDocument();
+      cleanup();
+
+      renderApp("/scanners", true, role);
+      expect(
+        await screen.findByText("You don't have access to this page"),
+      ).toBeInTheDocument();
+      cleanup();
     }
   });
 

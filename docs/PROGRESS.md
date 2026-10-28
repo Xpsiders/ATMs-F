@@ -506,9 +506,11 @@ Built the scanner-management workspace against the backend `/devices` contract
 `enqueueDeviceEnrolment` plus the `DeviceListItem` / `ProvisionedDevice` /
 `PairingCode` / `EnrolmentEnqueueResponse` schemas). All calls use the normal
 Bearer session; the web app never handles device keys. New "Scanners" nav entry
-and `/scanners` route are available to lecturers and administrators (the server
-authorizes by scope). Live-verified in headless Chrome (list, provision → pairing
-modal, light + dark).
+and `/scanners` route are now available only to institution administrators;
+lecturers, department administrators, and faculty administrators cannot see or
+open that page. The lecturer Live session uses the tenant-scoped
+`GET /venues/{id}/scanner-status` endpoint, whose response is limited to
+`status` (`online`, `offline`, `no_scanner`) and `last_seen_at`.
 
 - New `ScannerAdministration` component in `src/features/admin/pages/index.tsx`:
   - **List** (`GET /devices`): each scanner shows name, venue, a status badge
@@ -797,3 +799,26 @@ behavior. A focused test confirms a student can log out from the student page.
 | `pnpm typecheck` | Passed; API generation and `tsc -b --pretty false --force` completed without errors. |
 | `pnpm test --maxWorkers=1` | Passed; 16 test files and 96 tests passed. |
 | `pnpm build` | Passed; Vite transformed 311 modules. CSS **73.54 kB / 15.44 kB gzip**; JS chunks **398.76 kB / 119.07 kB**, **52.42 kB / 12.95 kB**, and **36.85 kB / 10.42 kB gzip**. |
+
+## Read-only venue scanner status
+
+Removed scanner-management navigation and route access for lecturers,
+department admins, and faculty admins; institution admins retain management
+access. The lecturer Live session now polls the confirmed, tenant-scoped
+`GET /venues/{id}/scanner-status` endpoint every 15 seconds and on tab return.
+The response contains only `status` (`online`, `offline`, or `no_scanner`) and
+nullable `last_seen_at`; the page displays the status and the formatted
+last-seen timestamp, without using the management `/devices` payload. Mock
+responses follow the same contract. Session start and `/device/tasks` pickup
+were not changed. The endpoint contract documents server-side heartbeat
+freshness and institution isolation; no cutoff interval is published.
+
+- Added tests for online/offline/no-scanner states, selected venue lookup,
+  exact response fields, and management-route denial for the removed roles.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; API generation and `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test --maxWorkers=1` | Passed; 16 test files and 98 tests passed. |
+| `pnpm build` | Passed; Vite transformed 311 modules. CSS **73.54 kB / 15.44 kB gzip**; JS chunks **398.81 kB / 119.09 kB**, **52.42 kB / 12.95 kB**, and **38.00 kB / 10.65 kB gzip**. |

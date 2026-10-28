@@ -8,7 +8,7 @@ import {
 import { apiRequest, downloadApiFile } from "@/shared/lib/apiClient";
 import { useServerCode } from "@/shared/hooks/useServerCode";
 import { requestScreenWakeLock } from "@/shared/lib/wakeLock";
-import { formatInitials } from "@/shared/lib/format";
+import { formatDate, formatInitials, formatTime } from "@/shared/lib/format";
 import { tryGetCurrentPosition } from "@/shared/lib/geo";
 import { ApiError, formatApiError, presentApiError } from "@/api/errors";
 import type {
@@ -31,6 +31,7 @@ import type {
   SessionPatchResponse,
   SessionReportResponse,
   VenueListResponse,
+  VenueScannerStatusResponse,
 } from "@/api/contracts";
 import {
   Icon,
@@ -679,7 +680,10 @@ export function LiveSession({ user }: { user: CurrentUser }) {
   const [boardTheme, setBoardTheme] = useState<"dark" | "light">("dark");
   const [localFixedCode, setLocalFixedCode] = useState<string | null>(null);
   const [localEnded, setLocalEnded] = useState(false);
-  const [localScannerOffline, setLocalScannerOffline] = useState(false);
+  const [scannerStatus, setScannerStatus] =
+    useState<VenueScannerStatusResponse | null>(null);
+  const [scannerStatusError, setScannerStatusError] = useState("");
+  const [scannerStatusLoading, setScannerStatusLoading] = useState(false);
   const [projectorUnavailable, setProjectorUnavailable] = useState(false);
   const [notice, setNotice] = useState("");
   const [locationResult, setLocationResult] =
@@ -693,9 +697,7 @@ export function LiveSession({ user }: { user: CurrentUser }) {
     localFixedCode ??
     (mock && demoSession && !demoSession.rotating ? demoSession.code : null);
   const ended = localEnded || (mock && demoSession?.state === "ended");
-  const scannerOffline = mock
-    ? demoState.scanners.some((scanner) => scanner.status === "offline")
-    : localScannerOffline;
+  const scannerOffline = scannerStatus?.status === "offline";
   const {
     code,
     seconds,
@@ -814,6 +816,51 @@ export function LiveSession({ user }: { user: CurrentUser }) {
     (offering) => offering.id === apiSession?.offering_id,
   );
   const apiVenue = venues.find((venue) => venue.id === apiSession?.venue_id);
+  const venueId = apiSession?.venue_id ?? demoSession?.venueId;
+  useEffect(() => {
+    if (!venueId) {
+      setScannerStatus(null);
+      setScannerStatusError("");
+      setScannerStatusLoading(false);
+      return;
+    }
+    let active = true;
+    let inFlight = false;
+    setScannerStatus(null);
+    setScannerStatusError("");
+    setScannerStatusLoading(true);
+    const loadStatus = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await apiRequest<VenueScannerStatusResponse>(
+          `/venues/${encodeURIComponent(venueId)}/scanner-status`,
+        );
+        if (active) {
+          setScannerStatus(result);
+          setScannerStatusError("");
+        }
+      } catch (caught) {
+        if (active) setScannerStatusError(formatApiError(caught));
+      } finally {
+        inFlight = false;
+        if (active) setScannerStatusLoading(false);
+      }
+    };
+    void loadStatus();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadStatus();
+    }, 15_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadStatus();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [demoState.scanners, venueId]);
   const activeCode = fixedCode ?? code;
   const demoRosterRows = demoState.attendance
     .filter((record) => record.sessionId === sessionId)
@@ -864,12 +911,25 @@ export function LiveSession({ user }: { user: CurrentUser }) {
       : undefined;
   const offeringCode = mock ? demoOffering?.code : undefined;
   const venueName = mock ? demoSession?.venue : apiVenue?.name;
-  const scannerStatusLabel = mock
-    ? scannerOffline
-      ? "Scanner offline"
-      : "All scanners online"
-    : "Scanner status unavailable";
-  const venueId = apiSession?.venue_id ?? demoSession?.venueId;
+  const scannerStatusLabel =
+    scannerStatus?.status === "online"
+      ? "Scanner online"
+      : scannerStatus?.status === "offline"
+        ? "Scanner offline"
+        : scannerStatus?.status === "no_scanner"
+          ? "No scanner at this venue"
+          : scannerStatusLoading
+            ? "Checking scanner status…"
+            : "Scanner status unavailable";
+  const scannerStatusClass =
+    scannerStatus?.status === "offline"
+      ? "offline"
+      : scannerStatus?.status === "online"
+        ? "online"
+        : "";
+  const scannerLastSeen = scannerStatus?.last_seen_at
+    ? `Last seen ${formatDate(scannerStatus.last_seen_at)}, ${formatTime(scannerStatus.last_seen_at)}`
+    : "Last seen unavailable";
   // The geofence in force: the latest re-check result if there is one, then the
   // session the server returned. All three values may legitimately be absent.
   const geofence = locationResult ?? {
@@ -1185,7 +1245,7 @@ export function LiveSession({ user }: { user: CurrentUser }) {
             <p>Scanner status reported by the API</p>
           </div>
           <span
-            className={`scanner-pill ${scannerOffline ? "offline" : mock ? "online" : ""}`}
+            className={`scanner-pill ${scannerStatusClass}`}
           >
             <i />
             {scannerStatusLabel}
@@ -1193,11 +1253,17 @@ export function LiveSession({ user }: { user: CurrentUser }) {
         </div>
         <div className="scanner-coverage">
           <span
-            className={`scanner-pill ${scannerOffline ? "offline" : mock ? "online" : ""}`}
+            className={`scanner-pill ${scannerStatusClass}`}
           >
             <i />
             {venueName ?? "Session venue"} · {scannerStatusLabel}
           </span>
+          <span>{scannerLastSeen}</span>
+          {scannerStatusError && (
+            <p className="inline-error" role="status">
+              {scannerStatusError}
+            </p>
+          )}
           {isMockMode() && (
             <select
               className="filter-select"
@@ -1212,7 +1278,6 @@ export function LiveSession({ user }: { user: CurrentUser }) {
               onChange={(event) => {
                 const scenario = event.target.value;
                 const offline = scenario === "scanner_offline";
-                setLocalScannerOffline(offline);
                 if (mock) setDemoScannerStatus(offline ? "offline" : "online");
                 setProjectorUnavailable(scenario === "projector_unavailable");
               }}

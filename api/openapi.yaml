@@ -536,6 +536,46 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {description: Caller cannot manage venues., content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}}
         "500": {$ref: "#/components/responses/InternalError"}
+  /venues/{id}/scanner-status:
+    get:
+      operationId: getVenueScannerStatus
+      summary: Get the read-only scanner status for a venue
+      description: >-
+        Tenant-scoped read-only status for a venue in the authenticated
+        institution. Venue-reader roles (lecturer, department administrator,
+        faculty administrator, institution administrator, and platform
+        administrator) may read it. The server determines online/offline from
+        the scanner's last-seen heartbeat and returns no device identifiers,
+        keys, pairing codes, or management data. A venue outside the
+        authenticated user's institution must not be disclosed.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: The venue scanner status and latest last-seen timestamp only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueScannerStatus"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: Caller does not have a venue-reader role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Venue is not found or is outside the authenticated user's institution.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500": {$ref: "#/components/responses/InternalError"}
   /venues/{id}:
     parameters:
       - name: id
@@ -4088,6 +4128,22 @@ components:
             - {type: string, format: date-time}
             - {type: "null"}
         pairing_code_expires_at:
+          oneOf:
+            - {type: string, format: date-time}
+            - {type: "null"}
+    VenueScannerStatus:
+      type: object
+      additionalProperties: false
+      required: [status, last_seen_at]
+      description: Read-only venue status; contains no scanner identity or management fields.
+      properties:
+        status:
+          type: string
+          enum: [online, offline, no_scanner]
+          description: >-
+            Computed by the server from the most recent scanner heartbeat.
+            no_scanner means there is no active scanner assigned to this venue.
+        last_seen_at:
           oneOf:
             - {type: string, format: date-time}
             - {type: "null"}

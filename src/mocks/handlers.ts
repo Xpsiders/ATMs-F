@@ -48,6 +48,7 @@ import {
   deleteDemoSemester,
   endDemoSession,
   enqueueDemoEnrolment,
+  getDemoVenueScannerStatus,
   listDemoDevices,
   provisionDemoDevice,
   regenerateDemoPairingCode,
@@ -247,6 +248,19 @@ export const handlers = [
       ? Number(url.searchParams.get("offset"))
       : 0;
     return HttpResponse.json(listDemoDevices(limit, offset));
+  }),
+  http.get(`${apiBaseUrl}/venues/:id/scanner-status`, ({ params }) => {
+    const account = getMockSession();
+    if (!account || !DEVICE_SCOPE_ROLES.includes(account.role))
+      return apiError(
+        403,
+        "access_denied",
+        "This account cannot view scanner status in this venue scope.",
+      );
+    const status = getDemoVenueScannerStatus(String(params.id));
+    return status
+      ? HttpResponse.json(status)
+      : apiError(404, "venue_not_found", "Venue was not found.");
   }),
   http.post(`${apiBaseUrl}/devices`, async ({ request }) => {
     const denied = denyDeviceScope();

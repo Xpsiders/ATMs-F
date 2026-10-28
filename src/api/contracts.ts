@@ -73,6 +73,8 @@ export type RegistrationResponse =
 export type VenueListResponse =
   operations["listVenues"]["responses"][200]["content"]["application/json"];
 export type Venue = VenueListResponse["items"][number];
+export type VenueScannerStatusResponse =
+  operations["getVenueScannerStatus"]["responses"][200]["content"]["application/json"];
 export type OfferingsResponse =
   operations["getMyOfferings"]["responses"][200]["content"]["application/json"];
 export type StaffImportRequest =

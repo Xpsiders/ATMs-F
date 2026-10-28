@@ -558,12 +558,6 @@ export function App() {
                 icon="report"
                 current={activePath}
               />
-              <NavLink
-                label="Scanners"
-                path="/scanners"
-                icon="settings"
-                current={activePath}
-              />
             </>
           ) : (
             <>
@@ -617,12 +611,14 @@ export function App() {
                 icon="courses"
                 current={activePath}
               />
-              <NavLink
-                label="Scanners"
-                path="/scanners"
-                icon="settings"
-                current={activePath}
-              />
+              {role === "institution-admin" && (
+                <NavLink
+                  label="Scanners"
+                  path="/scanners"
+                  icon="settings"
+                  current={activePath}
+                />
+              )}
               <NavLink
                 label="People & roles"
                 path="/profile"
@@ -1039,11 +1035,7 @@ export function App() {
                 element={
                   <RoleGuard
                     role={role}
-                    allowedRoles={[
-                      "lecturer",
-                      "department-admin",
-                      "institution-admin",
-                    ]}
+                    allowedRoles={["institution-admin"]}
                   >
                     <ScannerAdministration />
                   </RoleGuard>

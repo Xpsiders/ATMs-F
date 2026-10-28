@@ -39,6 +39,7 @@ import type {
   UpdateSemesterRequest,
   UpdateVenueRequest,
   VenueListResponse,
+  VenueScannerStatusResponse,
 } from "@/api/contracts";
 
 export type DemoOffering = {
@@ -88,6 +89,7 @@ export type DemoSession = {
 
 export type DemoScanner = {
   id: string;
+  venueId: string;
   venue: string;
   status: "online" | "offline";
   offlineSince?: string;
@@ -343,6 +345,7 @@ const INITIAL_DEMO_STATE: DemoState = {
   scanners: [
     {
       id: "scanner-lt2",
+      venueId: demoVenues[0]!.id,
       venue: "Engineering Building · Lecture Theatre 2",
       status: "online",
     },
@@ -1273,6 +1276,32 @@ export function listDemoDevices(limit: number, offset: number): DevicesResponse 
     limit,
     offset,
     has_more: offset + page.length < all.length,
+  };
+}
+
+export function getDemoVenueScannerStatus(
+  venueId: string,
+): VenueScannerStatusResponse | undefined {
+  if (!demoVenues.some((venue) => venue.id === venueId)) return undefined;
+  const activeDevices = demoState.devices.filter(
+    (device) => device.venue_id === venueId && device.status === "active",
+  );
+  if (activeDevices.length === 0)
+    return { status: "no_scanner", last_seen_at: null };
+  const lastSeenAt = activeDevices.reduce<string | null>(
+    (latest, device) =>
+      device.last_seen_at &&
+      (!latest || device.last_seen_at > latest)
+        ? device.last_seen_at
+        : latest,
+    null,
+  );
+  const scenario = demoState.scanners.find(
+    (scanner) => scanner.venueId === venueId,
+  );
+  return {
+    status: scenario?.status === "offline" ? "offline" : "online",
+    last_seen_at: lastSeenAt,
   };
 }
 
