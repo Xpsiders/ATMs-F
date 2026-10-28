@@ -777,6 +777,24 @@ export function App() {
                   : `Level ${getAcademicLevel(currentUser)}`}
               </small>
             </div>
+            {role === "student" && (
+              <button
+                className="text-button student-logout-button"
+                aria-label="Log out of student account"
+                onClick={() => {
+                  if (mockMode) {
+                    clearMockSession();
+                  }
+                  setCurrentUser(null);
+                  setRole(null);
+                  clearAuth();
+                  navigate("/login");
+                }}
+              >
+                <Icon name="logout" size={16} />
+                Log out
+              </button>
+            )}
             <span className="top-avatar">
               {formatInitials(currentUser.name)}
             </span>

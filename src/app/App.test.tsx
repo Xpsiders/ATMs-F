@@ -120,6 +120,27 @@ describe("Campus Attendance screens", () => {
     ).toBeInTheDocument();
   });
 
+  it("lets a student log out from the student page", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Log out of student account",
+      }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Log out of student account" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Sign in to your account",
+      }),
+    ).toBeInTheDocument();
+    expect(getMockSession()).toBeNull();
+  });
+
   it("shows only API offerings assigned to the lecturer and starts the selected offering", async () => {
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";

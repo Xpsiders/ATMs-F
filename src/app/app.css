@@ -315,6 +315,10 @@
   color: var(--muted);
   font-size: 9px;
 }
+.student-logout-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .account-profile {
   padding: 22px;
 }
