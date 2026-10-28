@@ -65,3 +65,16 @@ export function getCurrentPosition(
     );
   });
 }
+
+/**
+ * Captures a fix for callers that must continue without one. Location is
+ * advisory everywhere in this app, so a denied permission, a timeout, or an
+ * insecure context resolves to null instead of failing the caller's request.
+ */
+export async function tryGetCurrentPosition(): Promise<Coordinates | null> {
+  try {
+    return await getCurrentPosition();
+  } catch {
+    return null;
+  }
+}

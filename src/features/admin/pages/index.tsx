@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "@/shared/lib/apiClient";
 import { ApiError, formatApiError, presentApiError } from "@/api/errors";
+import { tryGetCurrentPosition } from "@/shared/lib/geo";
 import type {
   AcademicSessionsResponse,
   CatalogueItem,
@@ -14,6 +15,8 @@ import type {
   CreateRoleAssignmentRequest,
   CreateSemesterRequest,
   CreateSemesterResponse,
+  CaptureVenueLocationRequest,
+  CaptureVenueLocationResponse,
   CreateVenueRequest,
   CreateVenueResponse,
   DeviceListItem,
@@ -1171,12 +1174,11 @@ export function VenueAdministration() {
   const [venues, setVenues] = useState<VenueListResponse["items"]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
-  const [radius, setRadius] = useState(60);
+  const [radius, setRadius] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
+  const [capturingId, setCapturingId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -1203,10 +1205,17 @@ export function VenueAdministration() {
   function edit(venue: VenueListResponse["items"][number]) {
     setSelectedId(venue.id);
     setName(venue.name);
-    setLatitude(String(venue.latitude));
-    setLongitude(String(venue.longitude));
-    setRadius(venue.radius_meters);
+    setRadius(
+      typeof venue.radius_meters === "number" ? String(venue.radius_meters) : "",
+    );
     setDepartmentId(venue.department_id ?? "");
+  }
+
+  function resetForm() {
+    setSelectedId("");
+    setName("");
+    setRadius("");
+    setDepartmentId("");
   }
 
   async function saveVenue(event: React.FormEvent<HTMLFormElement>) {
@@ -1214,40 +1223,70 @@ export function VenueAdministration() {
     setPending(true);
     setError("");
     setMessage("");
-    const coordinates = {
+    // A venue is a named room. Coordinates are never typed in here: they are
+    // captured in the room, by the lecturer who starts a class or by an
+    // administrator standing in it.
+    const trimmedRadius = radius.trim();
+    const details = {
       name: name.trim(),
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      radius_meters: radius,
+      ...(trimmedRadius ? { radius_meters: Number(trimmedRadius) } : {}),
       ...(departmentId.trim() ? { department_id: departmentId.trim() } : {}),
     };
     try {
       if (selectedId) {
-        const payload: UpdateVenueRequest = coordinates;
+        const payload: UpdateVenueRequest = details;
         await apiRequest<UpdateVenueResponse>(
           `/venues/${encodeURIComponent(selectedId)}`,
           { method: "PATCH", body: JSON.stringify(payload) },
         );
         setMessage("Venue updated.");
       } else {
-        const payload: CreateVenueRequest = coordinates;
+        const payload: CreateVenueRequest = details;
         await apiRequest<CreateVenueResponse>("/venues", {
           method: "POST",
           body: JSON.stringify(payload),
         });
         setMessage("Venue created.");
       }
-      setSelectedId("");
-      setName("");
-      setLatitude("");
-      setLongitude("");
-      setRadius(60);
-      setDepartmentId("");
+      resetForm();
       setReloadKey((key) => key + 1);
     } catch (caught) {
       setError(formatApiError(caught));
     } finally {
       setPending(false);
+    }
+  }
+
+  async function captureLocation(venue: VenueListResponse["items"][number]) {
+    setCapturingId(venue.id);
+    setError("");
+    setMessage("");
+    try {
+      const fix = await tryGetCurrentPosition();
+      if (!fix) {
+        setError(
+          "This device could not provide a position, so nothing was changed.",
+        );
+        return;
+      }
+      const payload: CaptureVenueLocationRequest = {
+        latitude: fix.lat,
+        longitude: fix.lng,
+        accuracy_meters: fix.accuracy,
+      };
+      const stored = await apiRequest<CaptureVenueLocationResponse>(
+        `/venues/${encodeURIComponent(venue.id)}/location`,
+        { method: "POST", body: JSON.stringify(payload) },
+      );
+      setMessage(`${stored.name} is now centred on this device's position.`);
+      setReloadKey((key) => key + 1);
+    } catch (caught) {
+      if (caught instanceof ApiError) {
+        const presentation = presentApiError(caught.code, caught.message);
+        setError(`${presentation.message} ${presentation.action}`);
+      } else setError(formatApiError(caught));
+    } finally {
+      setCapturingId("");
     }
   }
 
@@ -1300,11 +1339,27 @@ export function VenueAdministration() {
               <div>
                 <b>{venue.name}</b>
                 <span>
-                  {venue.latitude}, {venue.longitude} · {venue.radius_meters} m
+                  {typeof venue.latitude === "number" &&
+                  typeof venue.longitude === "number"
+                    ? `${venue.latitude.toFixed(5)}, ${venue.longitude.toFixed(5)}${
+                        typeof venue.radius_meters === "number"
+                          ? ` · ${venue.radius_meters} m`
+                          : ""
+                      }`
+                    : "Location not set yet — the next class here will set it"}
                 </span>
                 <span>{venue.active ? "Active" : "Inactive"}</span>
               </div>
               <div className="button-row">
+                <button
+                  className="text-button"
+                  disabled={capturingId === venue.id}
+                  onClick={() => void captureLocation(venue)}
+                >
+                  {capturingId === venue.id
+                    ? "Reading position…"
+                    : "Recalibrate this room"}
+                </button>
                 <button className="text-button" onClick={() => edit(venue)}>
                   Edit
                 </button>
@@ -1339,54 +1394,35 @@ export function VenueAdministration() {
             maxLength={200}
           />
         </label>
-        <div className="form-grid">
+        <p className="field-note">
+          A venue only needs a name. Its position is captured inside the room —
+          by “Recalibrate this room”, or by the first class started there with
+          location allowed.
+        </p>
+        <label className="field-label">
+          Department ID (optional)
+          <input
+            className="field-control"
+            value={departmentId}
+            onChange={(event) => setDepartmentId(event.target.value)}
+          />
+        </label>
+        <details className="advanced-disclosure">
+          <summary>Advanced</summary>
           <label className="field-label">
-            Latitude
-            <input
-              className="field-control"
-              type="number"
-              step="any"
-              min={-90}
-              max={90}
-              value={latitude}
-              onChange={(event) => setLatitude(event.target.value)}
-              required
-            />
-          </label>
-          <label className="field-label">
-            Longitude
-            <input
-              className="field-control"
-              type="number"
-              step="any"
-              min={-180}
-              max={180}
-              value={longitude}
-              onChange={(event) => setLongitude(event.target.value)}
-              required
-            />
-          </label>
-          <label className="field-label">
-            Radius (meters)
+            Check-in radius in metres (optional)
             <input
               className="field-control"
               type="number"
               min={1}
+              max={2000}
               step={1}
+              placeholder="Defaults to 75 m once a position is captured"
               value={radius}
-              onChange={(event) => setRadius(Number(event.target.value))}
-              required
+              onChange={(event) => setRadius(event.target.value)}
             />
           </label>
-          <label className="field-label">
-            Department ID (optional)
-            <input
-              className="field-control"
-              value={departmentId}
-              onChange={(event) => setDepartmentId(event.target.value)}
-            />
-          </label>
-        </div>
+        </details>
         <div className="button-row">
           <button
             className="button primary-button"
@@ -1399,10 +1435,7 @@ export function VenueAdministration() {
             <button
               className="button secondary-button"
               type="button"
-              onClick={() => {
-                setSelectedId("");
-                setName("");
-              }}
+              onClick={resetForm}
             >
               Cancel edit
             </button>

@@ -2,6 +2,7 @@ import type { components } from "@/api/schema";
 import type {
   LiveClassesResponse,
   AcademicSessionsResponse,
+  CaptureVenueLocationRequest,
   CreateAcademicSessionRequest,
   CreateCourseRequest,
   CreateOfferingRequest,
@@ -27,6 +28,9 @@ import type {
   StudentAttendanceResponse,
   StudentCoursesResponse,
   StudentTimetableResponse,
+  SessionLocationRequest,
+  SessionLocationResult,
+  SessionLocationSource,
   StartSessionRequest,
   SemestersResponse,
   TeachingRequestsResponse,
@@ -72,9 +76,9 @@ export type DemoSession = {
   date: string;
   startedAt: string;
   lateAfterMin: number;
-  latitude: number;
-  longitude: number;
-  radiusMeters: number;
+  latitude: number | null;
+  longitude: number | null;
+  radiusMeters: number | null;
   endedAt?: string;
   state: "scheduled" | "live" | "ended";
   code: string;
@@ -97,7 +101,7 @@ export type DemoAttendance = {
   scanTime: string;
   status:
     | "verified"
-    | "suspected_proxy"
+    | "needs_confirmation"
     | "scan_only"
     | "absent"
     | "late"
@@ -133,6 +137,16 @@ export const DEMO_VENUES: VenueListResponse["items"] = [
     latitude: 7.5175,
     longitude: 4.5229,
     radius_meters: 60,
+    active: true,
+  },
+  // A named room nobody has stood in yet: coordinates arrive from the first
+  // class started there, so the UI has to render the absent case.
+  {
+    id: "7c1d59a8-0e42-4f3b-8a71-6b9e2c4d5f08",
+    name: "Studio 3",
+    latitude: null,
+    longitude: null,
+    radius_meters: null,
     active: true,
   },
 ];
@@ -317,9 +331,9 @@ const INITIAL_DEMO_STATE: DemoState = {
       date: "2026-10-20",
       startedAt: "2026-10-20T08:02:00Z",
       lateAfterMin: 15,
-      latitude: demoVenues[0]!.latitude,
-      longitude: demoVenues[0]!.longitude,
-      radiusMeters: demoVenues[0]!.radius_meters,
+      latitude: demoVenues[0]!.latitude ?? null,
+      longitude: demoVenues[0]!.longitude ?? null,
+      radiusMeters: demoVenues[0]!.radius_meters ?? null,
       state: "live",
       code: "381204",
       rotating: true,
@@ -341,7 +355,7 @@ const INITIAL_DEMO_STATE: DemoState = {
       webTime: "09:07",
       scanTime: "09:18",
       status: "verified",
-      flags: ["shared_device"],
+      flags: [],
     },
     {
       studentId: "2021-19422",
@@ -349,8 +363,8 @@ const INITIAL_DEMO_STATE: DemoState = {
       sessionId: SEEDED_SESSION_ID,
       webTime: "09:14",
       scanTime: "—",
-      status: "suspected_proxy",
-      flags: ["identical_coordinates", "borderline_distance"],
+      status: "needs_confirmation",
+      flags: ["location_unverified"],
     },
     {
       studentId: "2021-20117",
@@ -469,6 +483,7 @@ export function resetDemoData(): void {
   demoCourses = structuredClone(INITIAL_DEMO_COURSES);
   demoOfferingLecturers.clear();
   demoDeviceSlots.clear();
+  demoSessionDevices.clear();
   listeners.forEach((listener) => listener());
 }
 
@@ -984,8 +999,8 @@ export function listDemoStudentAttendance(
           ? record.status
           : "present";
       const classification: StudentAttendanceResponse["items"][number]["classification"] =
-        record.status === "suspected_proxy"
-          ? "suspected_proxy"
+        record.status === "needs_confirmation"
+          ? "web_only_unverified"
           : record.status === "scan_only"
             ? "present_no_web_log"
             : record.status === "absent"
@@ -1487,6 +1502,36 @@ export function createDemoSession(
   const id = globalThis.crypto.randomUUID();
   const startedAt = new Date().toISOString();
   const code = "726519";
+  // The lecturer's own fix centres the session and recalibrates the room, but
+  // only when the device reported it precisely enough to trust.
+  const trusted =
+    typeof request.latitude === "number" &&
+    typeof request.longitude === "number" &&
+    typeof request.accuracy_meters === "number" &&
+    request.accuracy_meters <= TRUSTED_ACCURACY_METERS;
+  const locationSource: SessionLocationSource = trusted
+    ? "device"
+    : typeof venue.latitude === "number" && typeof venue.longitude === "number"
+      ? "venue"
+      : "none";
+  if (trusted)
+    demoVenues = demoVenues.map((candidate) =>
+      candidate.id === venue.id
+        ? {
+            ...candidate,
+            latitude: request.latitude ?? null,
+            longitude: request.longitude ?? null,
+            radius_meters:
+              request.radius_meters ??
+              candidate.radius_meters ??
+              DEFAULT_RADIUS_METERS,
+          }
+        : candidate,
+    );
+  const latitude = trusted ? (request.latitude ?? null) : (venue.latitude ?? null);
+  const longitude = trusted
+    ? (request.longitude ?? null)
+    : (venue.longitude ?? null);
   const session: DemoSession = {
     id,
     offeringId: offering.id,
@@ -1496,9 +1541,14 @@ export function createDemoSession(
     date: startedAt.slice(0, 10),
     startedAt,
     lateAfterMin: request.late_after_min ?? 10,
-    latitude: venue.latitude,
-    longitude: venue.longitude,
-    radiusMeters: venue.radius_meters,
+    latitude,
+    longitude,
+    radiusMeters:
+      locationSource === "none"
+        ? null
+        : (request.radius_meters ??
+          venue.radius_meters ??
+          DEFAULT_RADIUS_METERS),
     state: "live",
     code,
     rotating: request.rotating_code,
@@ -1522,7 +1572,139 @@ export function createDemoSession(
     },
     code,
     seconds_remaining: 30,
+    location_source: locationSource,
   };
+}
+
+/**
+ * A fix vaguer than this cannot become a room's stored centre, and cannot move
+ * a geofence students are already checking in against.
+ */
+const TRUSTED_ACCURACY_METERS = 100;
+const DEFAULT_RADIUS_METERS = 75;
+
+export function captureDemoVenueLocation(
+  id: string,
+  request: CaptureVenueLocationRequest,
+): VenueListResponse["items"][number] | "too_inaccurate" | null {
+  const current = demoVenues.find((venue) => venue.id === id);
+  if (!current) return null;
+  if (request.accuracy_meters > TRUSTED_ACCURACY_METERS)
+    return "too_inaccurate";
+  const updated = {
+    ...current,
+    latitude: request.latitude,
+    longitude: request.longitude,
+    radius_meters:
+      request.radius_meters ?? current.radius_meters ?? DEFAULT_RADIUS_METERS,
+  };
+  demoVenues = demoVenues.map((venue) => (venue.id === id ? updated : venue));
+  return updated;
+}
+
+function getMetresBetween(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+): number {
+  const earthRadius = 6_371_000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLat = toRadians(to.latitude - from.latitude);
+  const deltaLng = toRadians(to.longitude - from.longitude);
+  const meanLat = toRadians((from.latitude + to.latitude) / 2);
+  const x = deltaLng * Math.cos(meanLat);
+  return Math.sqrt(deltaLat * deltaLat + x * x) * earthRadius;
+}
+
+/**
+ * Mirrors the server's rules: a vague fix is ignored, a fix beyond the
+ * session's own radius is drift and moves nothing, and a venue with no centre
+ * takes its first one from a trusted fix.
+ */
+export function updateDemoSessionLocation(
+  sessionId: string,
+  request: SessionLocationRequest,
+): SessionLocationResult | "closed" | null {
+  const session = getDemoSession(sessionId);
+  if (!session) return null;
+  if (session.state !== "live") return "closed";
+  const hasCentre =
+    typeof session.latitude === "number" &&
+    typeof session.longitude === "number";
+  const movedMeters = hasCentre
+    ? getMetresBetween(
+        { latitude: session.latitude!, longitude: session.longitude! },
+        { latitude: request.latitude, longitude: request.longitude },
+      )
+    : 0;
+  const radius = session.radiusMeters ?? DEFAULT_RADIUS_METERS;
+  const result = (outcome: SessionLocationResult["outcome"]) => ({
+    session_id: session.id,
+    outcome,
+    latitude: session.latitude,
+    longitude: session.longitude,
+    radius_meters: session.radiusMeters,
+    moved_meters: Math.round(movedMeters),
+  });
+  if (request.accuracy_meters > TRUSTED_ACCURACY_METERS)
+    return result("rejected_accuracy");
+  if (hasCentre && movedMeters > radius) return result("rejected_distance");
+  if (hasCentre && movedMeters <= request.accuracy_meters)
+    return result("unchanged");
+  const outcome: SessionLocationResult["outcome"] = hasCentre
+    ? "refined"
+    : "established";
+  updateDemoState((current) => ({
+    ...current,
+    sessions: current.sessions.map((candidate) =>
+      candidate.id === session.id
+        ? {
+            ...candidate,
+            latitude: request.latitude,
+            longitude: request.longitude,
+            radiusMeters: candidate.radiusMeters ?? DEFAULT_RADIUS_METERS,
+          }
+        : candidate,
+    ),
+  }));
+  demoVenues = demoVenues.map((venue) =>
+    venue.id === session.venueId
+      ? {
+          ...venue,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          radius_meters: venue.radius_meters ?? DEFAULT_RADIUS_METERS,
+        }
+      : venue,
+  );
+  return {
+    session_id: session.id,
+    outcome,
+    latitude: request.latitude,
+    longitude: request.longitude,
+    radius_meters: session.radiusMeters ?? DEFAULT_RADIUS_METERS,
+    moved_meters: Math.round(movedMeters),
+  };
+}
+
+/**
+ * One device records at most one student per session. The demo keeps the
+ * binding in memory only; no device identifier is persisted.
+ */
+const demoSessionDevices = new Map<string, string>();
+
+export function getDemoDeviceOwner(
+  sessionId: string,
+  deviceHash: string,
+): string | undefined {
+  return demoSessionDevices.get(`${sessionId}:${deviceHash}`);
+}
+
+export function bindDemoDevice(
+  sessionId: string,
+  deviceHash: string,
+  studentId: string,
+): void {
+  demoSessionDevices.set(`${sessionId}:${deviceHash}`, studentId);
 }
 
 export function getDemoSession(sessionId: string): DemoSession | undefined {

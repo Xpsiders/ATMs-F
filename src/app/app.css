@@ -1847,15 +1847,15 @@
 .status-chip.verified i {
   background: var(--success);
 }
-.status-chip.suspected_proxy {
-  color: var(--danger);
-  background: var(--danger-bg);
+.status-chip.web_only_unverified {
+  color: var(--warning);
+  background: var(--warning-bg);
 }
-.status-chip.suspected_proxy i {
-  background: var(--danger);
+.status-chip.web_only_unverified i {
+  background: var(--warning);
 }
-.status-chip.suspected_proxy i::before {
-  content: "!";
+.status-chip.web_only_unverified i::before {
+  content: "?";
 }
 .status-chip.late {
   color: var(--warning);
@@ -3773,12 +3773,12 @@
 .report-stat-icon i::before {
   content: "✓";
 }
-.report-stat.suspected .report-stat-icon {
-  color: var(--danger);
-  background: var(--danger-bg);
+.report-stat.needs-confirmation .report-stat-icon {
+  color: var(--warning);
+  background: var(--warning-bg);
 }
-.report-stat.suspected .report-stat-icon i::before {
-  content: "!";
+.report-stat.needs-confirmation .report-stat-icon i::before {
+  content: "?";
 }
 .report-stat.info .report-stat-icon {
   color: var(--info);
@@ -4149,4 +4149,22 @@
   .class-filter-controls .clear-filters {
     justify-self: start;
   }
+}
+
+.field-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.location-advisory {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 42ch;
+}
+.advanced-disclosure > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 0;
 }

@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { apiRequest, downloadApiFile } from "@/shared/lib/apiClient";
 import { useServerCode } from "@/shared/hooks/useServerCode";
 import { requestScreenWakeLock } from "@/shared/lib/wakeLock";
 import { formatInitials } from "@/shared/lib/format";
-import { ApiError, formatApiError } from "@/api/errors";
+import { tryGetCurrentPosition } from "@/shared/lib/geo";
+import { ApiError, formatApiError, presentApiError } from "@/api/errors";
 import type {
   AttendanceOverrideRequest,
   BulkOverrideResponse,
@@ -14,8 +20,13 @@ import type {
   OfferingsResponse,
   RosterPage,
   RosterSheetRow,
+  SessionLocationRequest,
+  SessionLocationResult,
+  SessionLocationSource,
   StartSessionRequest,
   StartSessionResponse,
+  CaptureVenueLocationRequest,
+  CaptureVenueLocationResponse,
   SessionPatchRequest,
   SessionPatchResponse,
   SessionReportResponse,
@@ -62,14 +73,68 @@ function getClassificationLabel(
     string
   > = {
     verified: "Verified",
-    suspected_proxy: "Suspected proxy",
     present_no_web_log: "Scan only",
-    web_only_unverified: "Web only",
+    web_only_unverified: "Needs confirmation",
     absent: "Absent",
     excused: "Excused",
   };
   return labels[classification];
 }
+
+/**
+ * Every reason the server can give for a row it could not verify. They are all
+ * rendered with the same wording and the same severity: the server cannot tell
+ * a stand-in from a queue at the sensor, a finger that will not read, or a
+ * student who did not know to scan, so none of them implies cheating.
+ */
+const NEEDS_CONFIRMATION_REASONS: Record<string, string> = {
+  scanner_unavailable: "Scanner marked unavailable",
+  scanner_offline: "No scanner heartbeat at check-in",
+  location_unverified: "Location could not be matched",
+  no_fingerprint: "No fingerprint scan",
+};
+
+function getReasonLabel(reason: string): string {
+  return NEEDS_CONFIRMATION_REASONS[reason] ?? reason;
+}
+
+/**
+ * What a mid-session fix was allowed to do. The geofence deliberately does not
+ * follow the lecturer out of the room, so a rejected fix is normal and is
+ * reported as information, never as an error.
+ */
+function getLocationOutcomeNote(result: SessionLocationResult): string {
+  switch (result.outcome) {
+    case "refined":
+      return "This room's saved location was sharpened from this device.";
+    case "established":
+      return "This room now has a saved location, set from this device.";
+    case "rejected_accuracy":
+      return "The last position was too vague to use, so the check-in area is unchanged.";
+    case "rejected_distance":
+      return "This device is outside the check-in area, so the area stayed with the students in the room.";
+    default:
+      return "";
+  }
+}
+
+/** The location source handed over by the start-session navigation, if any. */
+function readLocationSource(state: unknown): SessionLocationSource | null {
+  if (typeof state !== "object" || state === null || !("locationSource" in state))
+    return null;
+  const source: unknown = (state as { locationSource: unknown }).locationSource;
+  return source === "device" || source === "venue" || source === "none"
+    ? source
+    : null;
+}
+
+const SESSION_LOCATION_NOTES: Record<SessionLocationSource, string> = {
+  device: "",
+  venue:
+    "This room's own saved location was used. Start the next class here with location on to sharpen it.",
+  none:
+    "This class has no check-in area, so check-ins carry no distance. Attendance still works normally.",
+};
 
 function getReportStatus(
   classification: SessionReportResponse["items"][number]["classification"],
@@ -128,7 +193,7 @@ async function getAllSessionReportRows(
 
 const ATTENDANCE_STATUS_LABELS: Record<DemoAttendance["status"], string> = {
   verified: "Verified",
-  suspected_proxy: "Suspected proxy",
+  needs_confirmation: "Needs confirmation",
   scan_only: "Scan only",
   absent: "Absent",
   late: "Late",
@@ -175,6 +240,20 @@ function getFieldErrors(error: unknown): { field: string; message: string }[] {
           : [];
     return messages.map((message) => ({ field, message }));
   });
+}
+
+/** The open session that a 409 venue_session_already_open points at. */
+function getOpenSessionId(error: unknown): string {
+  if (
+    !(error instanceof ApiError) ||
+    error.code !== "venue_session_already_open" ||
+    typeof error.details !== "object" ||
+    !error.details ||
+    !("session_id" in error.details) ||
+    typeof error.details.session_id !== "string"
+  )
+    return "";
+  return error.details.session_id;
 }
 
 export function Teaching({ user }: { user: CurrentUser }) {
@@ -337,6 +416,8 @@ export function StartSession({ user }: { user: CurrentUser }) {
   const [fieldErrors, setFieldErrors] = useState<
     { field: string; message: string }[]
   >([]);
+  const [locating, setLocating] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -380,12 +461,7 @@ export function StartSession({ user }: { user: CurrentUser }) {
     setSaving(true);
     setError("");
     setFieldErrors([]);
-    const payload: StartSessionRequest = {
-      offering_id: offeringId,
-      venue_id: venueId,
-      rotating_code: rotatingCode,
-      late_after_min: lateAfterMin,
-    };
+    setOpenSessionId("");
     const selectedOffering = offerings.find(
       (offering) => offering.id === offeringId,
     );
@@ -394,6 +470,28 @@ export function StartSession({ user }: { user: CurrentUser }) {
       setSaving(false);
       return;
     }
+    // The lecturer is the only person in the room, so their device is the one
+    // real source for where the room is. A denied permission or a timeout must
+    // never stop the class: the three location fields are simply omitted, and
+    // the server falls back to the venue's own centre, or to no geofence.
+    setLocating(true);
+    const fix = await tryGetCurrentPosition();
+    setLocating(false);
+    const payload: StartSessionRequest = {
+      offering_id: offeringId,
+      venue_id: venueId,
+      rotating_code: rotatingCode,
+      late_after_min: lateAfterMin,
+      ...(fix
+        ? {
+            latitude: fix.lat,
+            longitude: fix.lng,
+            // Sent exactly as the browser reported it; the server decides
+            // whether the fix is precise enough to trust.
+            accuracy_meters: fix.accuracy,
+          }
+        : {}),
+    };
     try {
       const result = await apiRequest<StartSessionResponse>("/sessions", {
         method: "POST",
@@ -411,10 +509,12 @@ export function StartSession({ user }: { user: CurrentUser }) {
       );
       navigate(
         `/lecturer/live?sessionId=${encodeURIComponent(result.session.id)}`,
+        { state: { locationSource: result.location_source ?? null } },
       );
     } catch (caught) {
       setError(formatApiError(caught));
       setFieldErrors(getFieldErrors(caught));
+      setOpenSessionId(getOpenSessionId(caught));
     } finally {
       setSaving(false);
     }
@@ -439,6 +539,16 @@ export function StartSession({ user }: { user: CurrentUser }) {
                   </li>
                 ))}
               </ul>
+            )}
+            {openSessionId && (
+              <p>
+                <Link
+                  className="text-button"
+                  to={`/lecturer/live?sessionId=${encodeURIComponent(openSessionId)}`}
+                >
+                  Open the session already running at this venue
+                </Link>
+              </p>
             )}
           </div>
         )}
@@ -508,12 +618,21 @@ export function StartSession({ user }: { user: CurrentUser }) {
               />
               Use rotating attendance code
             </label>
+            <p className="field-note">
+              If you allow location, this device sets where the room is for
+              today's check-ins and sharpens it for the next class. Starting the
+              class never waits on it: decline, and attendance still works.
+            </p>
             <button
               className="button primary-button"
               type="submit"
               disabled={saving || !offeringId || !venueId}
             >
-              {saving ? "Starting session…" : "Start session"}
+              {saving
+                ? locating
+                  ? "Checking this room's location…"
+                  : "Starting session…"
+                : "Start session"}
             </button>
           </>
         )}
@@ -563,6 +682,13 @@ export function LiveSession({ user }: { user: CurrentUser }) {
   const [localScannerOffline, setLocalScannerOffline] = useState(false);
   const [projectorUnavailable, setProjectorUnavailable] = useState(false);
   const [notice, setNotice] = useState("");
+  const [locationResult, setLocationResult] =
+    useState<SessionLocationResult | null>(null);
+  const [locationNote, setLocationNote] = useState("");
+  const [recalibrating, setRecalibrating] = useState(false);
+  const [recalibrateNote, setRecalibrateNote] = useState("");
+  const { state: routerState } = useLocation();
+  const startLocationSource = readLocationSource(routerState);
   const fixedCode =
     localFixedCode ??
     (mock && demoSession && !demoSession.rotating ? demoSession.code : null);
@@ -621,6 +747,50 @@ export function LiveSession({ user }: { user: CurrentUser }) {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [ended, mock, reloadLiveKey, sessionId]);
+  // The contract asks for the lecturer's current fix about every five minutes
+  // while the session is open, and whenever the app returns to the foreground.
+  // A failed post is never replayed: the next tick captures a fresh fix.
+  useEffect(() => {
+    if (!sessionId || ended) return;
+    let active = true;
+    let inFlight = false;
+    const send = async () => {
+      if (inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const fix = await tryGetCurrentPosition();
+        if (!fix || !active) return;
+        const payload: SessionLocationRequest = {
+          latitude: fix.lat,
+          longitude: fix.lng,
+          accuracy_meters: fix.accuracy,
+        };
+        const result = await apiRequest<SessionLocationResult>(
+          `/sessions/${encodeURIComponent(sessionId)}/location`,
+          { method: "POST", body: JSON.stringify(payload) },
+        );
+        if (!active) return;
+        setLocationResult(result);
+        setLocationNote(getLocationOutcomeNote(result));
+      } catch {
+        // A re-check that does not land changes nothing: the geofence already
+        // in force stays as it is, and students keep checking in against it.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void send();
+    const timer = window.setInterval(() => void send(), 5 * 60_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void send();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ended, sessionId]);
   useEffect(() => {
     if (mock) return;
     let active = true;
@@ -699,6 +869,50 @@ export function LiveSession({ user }: { user: CurrentUser }) {
       ? "Scanner offline"
       : "All scanners online"
     : "Scanner status unavailable";
+  const venueId = apiSession?.venue_id ?? demoSession?.venueId;
+  // The geofence in force: the latest re-check result if there is one, then the
+  // session the server returned. All three values may legitimately be absent.
+  const geofence = locationResult ?? {
+    latitude: apiSession?.latitude ?? null,
+    longitude: apiSession?.longitude ?? null,
+    radius_meters: apiSession?.radius_meters ?? null,
+  };
+  const hasGeofence =
+    typeof geofence.latitude === "number" &&
+    typeof geofence.longitude === "number";
+  async function recalibrateVenue() {
+    if (!venueId || recalibrating) return;
+    setRecalibrating(true);
+    setRecalibrateNote("");
+    try {
+      const fix = await tryGetCurrentPosition();
+      if (!fix) {
+        setRecalibrateNote(
+          "This device could not provide a position, so nothing was changed.",
+        );
+        return;
+      }
+      const payload: CaptureVenueLocationRequest = {
+        latitude: fix.lat,
+        longitude: fix.lng,
+        accuracy_meters: fix.accuracy,
+      };
+      const venue = await apiRequest<CaptureVenueLocationResponse>(
+        `/venues/${encodeURIComponent(venueId)}/location`,
+        { method: "POST", body: JSON.stringify(payload) },
+      );
+      setRecalibrateNote(
+        `${venue.name} is now centred on this device's position.`,
+      );
+    } catch (caught) {
+      if (caught instanceof ApiError) {
+        const presentation = presentApiError(caught.code, caught.message);
+        setRecalibrateNote(`${presentation.message} ${presentation.action}`);
+      } else setRecalibrateNote(formatApiError(caught));
+    } finally {
+      setRecalibrating(false);
+    }
+  }
   useEffect(() => {
     if (!boardMode) return;
     let active = true;
@@ -905,6 +1119,11 @@ export function LiveSession({ user }: { user: CurrentUser }) {
           Projector unavailable. Board mode is ready on this device.
         </div>
       )}
+      {startLocationSource && SESSION_LOCATION_NOTES[startLocationSource] && (
+        <div className="form-info" role="status">
+          {SESSION_LOCATION_NOTES[startLocationSource]}
+        </div>
+      )}
       <section className="panel live-dashboard">
         <div className="live-code-header">
           <span className="live-badge">
@@ -1007,6 +1226,49 @@ export function LiveSession({ user }: { user: CurrentUser }) {
           )}
         </div>
       </section>
+      {!ended && (
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Check-in area</h2>
+              <p>
+                Set from this device while the class runs; it stays with the
+                room when you walk out
+              </p>
+            </div>
+            {venueId && (
+              <button
+                className="button secondary-button"
+                disabled={recalibrating}
+                onClick={() => void recalibrateVenue()}
+              >
+                {recalibrating ? "Reading position…" : "Recalibrate this room"}
+              </button>
+            )}
+          </div>
+          <p>
+            {hasGeofence
+              ? `Centred on ${Number(geofence.latitude).toFixed(5)}, ${Number(
+                  geofence.longitude,
+                ).toFixed(5)}${
+                  typeof geofence.radius_meters === "number"
+                    ? ` · ${Math.round(geofence.radius_meters)} m radius`
+                    : ""
+                }`
+              : "No check-in area for this class. Attendance works normally, and check-ins carry no distance."}
+          </p>
+          {locationNote && (
+            <p className="field-note" role="status">
+              {locationNote}
+            </p>
+          )}
+          {recalibrateNote && (
+            <p className="field-note" role="status">
+              {recalibrateNote}
+            </p>
+          )}
+        </section>
+      )}
       <section className="panel">
         <div className="panel-heading">
           <div>
@@ -1035,9 +1297,17 @@ export function LiveSession({ user }: { user: CurrentUser }) {
               <i />
               {row.label}
             </span>
-            <span className="roster-flag">{row.flags.join(", ")}</span>
+            <span className="roster-flag">
+              {row.flags.map(getReasonLabel).join(", ")}
+            </span>
           </div>
         ))}
+        {rosterRows.some((row) => row.flags.length > 0) && (
+          <p className="field-note" role="status">
+            Rows that need confirmation can be confirmed from the session report
+            once this class ends.
+          </p>
+        )}
       </section>
     </div>
   );
@@ -1140,16 +1410,14 @@ export function Report({ user }: { user: CurrentUser }) {
       }));
   const registeredCount = rows.length;
   const verifiedCount = rows.filter((row) => row.label === "Verified").length;
-  const suspectedCount = rows.filter(
-    (row) => row.label === "Suspected proxy",
+  const needsConfirmationCount = rows.filter(
+    (row) => row.label === "Needs confirmation",
   ).length;
   const scanOnlyCount = rows.filter((row) => row.label === "Scan only").length;
   const absentCount = rows.filter((row) => row.label === "Absent").length;
   const needsReviewCount = rows.filter(
     (row) =>
-      row.label === "Suspected proxy" ||
-      row.label === "Web only" ||
-      row.label === "Scan only",
+      row.label === "Needs confirmation" || row.label === "Scan only",
   ).length;
   const departments = [...new Set(rows.map((row) => row.department))];
   const filteredRows = rows.filter(
@@ -1320,10 +1588,24 @@ export function Report({ user }: { user: CurrentUser }) {
           {verifiedCount} verified <i>·</i> {needsReviewCount} need review
         </span>
       </div>
+      {needsConfirmationCount > 0 && (
+        <div className="form-info" role="status">
+          {needsConfirmationCount} record
+          {needsConfirmationCount === 1 ? "" : "s"} need confirmation. Each one
+          passed a live code and the one-student-per-device check; the scanner,
+          or the position, could not corroborate it. Confirm or correct them
+          with an override.
+        </div>
+      )}
       <div className="report-stat-grid">
         {[
           [String(verifiedCount), "Verified", "Verified attendance", "verified"],
-          [String(suspectedCount), "Suspected proxy", "Flagged for lecturer review", "suspected"],
+          [
+            String(needsConfirmationCount),
+            "Needs confirmation",
+            "Confirm or clear these once the class has ended",
+            "needs-confirmation",
+          ],
           [String(scanOnlyCount), "Scan only", "Scan recorded without web check-in", "info"],
           [String(absentCount), "Absent", "No attendance recorded", "absent"],
         ].map((item) => (
@@ -1386,7 +1668,7 @@ export function Report({ user }: { user: CurrentUser }) {
           {[
             "All statuses",
             "Verified",
-            "Suspected proxy",
+            "Needs confirmation",
             "Scan only",
             "Absent",
             "Late",
@@ -1485,7 +1767,7 @@ export function Report({ user }: { user: CurrentUser }) {
                       {row.flags.length ? (
                         row.flags.map((flag) => (
                           <span className="flag-pill" key={flag}>
-                            {flag}
+                            {getReasonLabel(flag)}
                           </span>
                         ))
                       ) : (
@@ -1543,7 +1825,7 @@ export function Report({ user }: { user: CurrentUser }) {
             <div className="flag-list">
               {row.flags.map((flag) => (
                 <span className="flag-pill" key={flag}>
-                  {flag}
+                  {getReasonLabel(flag)}
                 </span>
               ))}
             </div>

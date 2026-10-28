@@ -43,6 +43,9 @@ vi.mock("@/shared/lib/geo", () => ({
   getCurrentPosition: vi
     .fn()
     .mockResolvedValue({ lat: 6.5, lng: 3.4, accuracy: 20 }),
+  tryGetCurrentPosition: vi
+    .fn()
+    .mockResolvedValue({ lat: 6.5, lng: 3.4, accuracy: 20 }),
   GeoError: class GeoError extends Error {},
 }));
 
@@ -1658,6 +1661,9 @@ describe("Campus Attendance screens", () => {
       venue_id: venueId,
       rotating_code: false,
       late_after_min: 17,
+      latitude: 6.5,
+      longitude: 3.4,
+      accuracy_meters: 20,
     } satisfies StartSessionRequest);
     expect(contentType).toBe("application/json");
     expect(window.location.pathname).toBe("/lecturer/live");

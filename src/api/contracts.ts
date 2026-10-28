@@ -164,3 +164,13 @@ export type SessionPatchRequest =
   operations["convertSessionToFixedCode"]["requestBody"]["content"]["application/json"];
 export type LoginRequest =
   operations["login"]["requestBody"]["content"]["application/json"];
+export type CaptureVenueLocationRequest =
+  operations["captureVenueLocation"]["requestBody"]["content"]["application/json"];
+export type CaptureVenueLocationResponse =
+  operations["captureVenueLocation"]["responses"][200]["content"]["application/json"];
+export type SessionLocationRequest =
+  operations["updateSessionLocation"]["requestBody"]["content"]["application/json"];
+export type SessionLocationResult =
+  operations["updateSessionLocation"]["responses"][200]["content"]["application/json"];
+export type SessionLocationSource =
+  NonNullable<StartSessionResponse["location_source"]>;

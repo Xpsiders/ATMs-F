@@ -701,3 +701,85 @@ name dropdown backed by the new public, unauthenticated endpoint.
 | `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
 | `pnpm test` | Passed; 14 test files and all 82 tests passed (3 new claim tests). |
 | `pnpm build` | Passed; `pnpm build` (the Vercel build command) completed, exit 0. |
+
+## Device-captured venue location, required device binding, and the removal of location refusals
+
+Rebuilt the location story against the refreshed contract. Location is now
+advisory everywhere: nothing refuses a check-in on position, and a venue is a
+named room whose coordinates are optional and captured inside it.
+
+- Regenerated `src/api/schema.d.ts` from `api/openapi.yaml` (`pnpm gen:api`) and
+  added `CaptureVenueLocationRequest/Response`, `SessionLocationRequest`,
+  `SessionLocationResult` and `SessionLocationSource` to `src/api/contracts.ts`.
+- Removed `outside_radius` from `src/api/errors.ts` and the development check-in
+  scenario list, and added presentations for `device_already_used`,
+  `location_too_inaccurate`, `venue_session_already_open`, `venue_not_found`,
+  `offering_access_denied`, `invalid_session`, `access_denied` and
+  `session_not_found`. `src/api/errors.test.ts` asserts `outside_radius` is gone.
+- Removed the `suspected_proxy` classification everywhere: lecturer labels, the
+  demo attendance status (now `needs_confirmation`), the student attendance
+  mapping, the report stat tile, the status filter chips and the `status-chip`
+  / `report-stat` CSS. `web_only_unverified` is now labelled **Needs
+  confirmation** in amber (`--warning`, 6.9:1 light / 7.9:1 dark), with an icon
+  and text. All four server reasons (`scanner_unavailable`, `scanner_offline`,
+  `location_unverified`, `no_fingerprint`) map to plain wording at one severity,
+  and the report carries a line saying each row still passed a live code and the
+  one-student-per-device check.
+- `src/shared/lib/geo.ts`: added `tryGetCurrentPosition()`, which resolves to
+  `null` on denial, timeout, an insecure context or an unsupported browser, for
+  the three callers that must continue without a fix.
+- Lecturer start (`StartSession`): captures the device fix before `POST
+  /sessions` and sends `coords.accuracy` unmodified as `accuracy_meters`. A
+  refused or failed fix omits all three fields and the class starts anyway. A
+  409 `venue_session_already_open` renders a link to `details.session_id`. The
+  returned `location_source` travels to the live screen in router state, which
+  shows a quiet note for `venue` and `none` and nothing for `device`.
+- Lecturer live session: posts the current fix to `POST /sessions/{id}/location`
+  on open, every five minutes, and whenever the tab returns to the foreground; a
+  failed post is never replayed (the next tick captures a fresh fix). A new
+  Check-in area panel shows the geofence in force — null-safe, never `0, 0` or
+  `NaN` — reports each outcome (`refined`, `established`, `unchanged`,
+  `rejected_accuracy`, `rejected_distance`) as information, and offers
+  "Recalibrate this room" (`POST /venues/{id}/location`). The live roster shows
+  the reason pills and says confirmation is available from the report once the
+  class ends; the bulk override itself still requires a closed session.
+- Student check-in: `device_hash` is always sent; `lat`/`lng`/`accuracy` are sent
+  only when the student shared a fix, and the location step is labelled optional.
+  A null `distance_meters` renders nothing, `location_unverified` shows a
+  non-accusing note, and a 409 `device_already_used` explains the one-student-
+  per-phone rule without implying a stand-in.
+- Admin venues: `POST /venues` needs only a name. The latitude/longitude inputs
+  and any admin-side capture control are gone, the radius (1–2000) sits behind an
+  **Advanced** disclosure, and rows without coordinates read "Location not set
+  yet — the next class here will set it". Every row offers "Recalibrate this
+  room", which surfaces `location_too_inaccurate` as "Wait for a better fix or
+  move near a window".
+- Mocks: session coordinates are nullable, a third seeded venue (`Studio 3`) has
+  none, `createDemoSession` applies the lecturer's fix and returns
+  `location_source`, and new handlers cover `POST /venues/{id}/location` and
+  `POST /sessions/{id}/location` (accuracy and drift rules mirrored). The
+  check-in handler requires `device_hash`, binds one student per device per
+  session in memory only, and returns `location_unverified` with a null
+  `distance_meters` when there is nothing to compare.
+- Tests: 12 new. Lecturer — starting with location refused sends no location
+  fields, a session with no geofence renders neither `0, 0` nor `NaN`, the
+  mid-session post carries the unmodified accuracy and a drift result leaves the
+  area in place, recalibration posts the device fix, and all four reasons render
+  as one severity. Student (new `src/features/student/pages/index.test.tsx`) —
+  a check-in with no position still carries the device hash, a shared fix sends
+  `coords.accuracy` unchanged, and `device_already_used` is explained without
+  accusation. Admin (new `src/features/admin/pages/index.test.tsx`) — name-only
+  creation with no coordinate inputs, the "not set yet" row, a successful
+  recalibration, and the too-vague-fix guidance.
+
+Not done: the real backend was not reachable from this session, so every
+response above is exercised through MSW and the generated types, not against
+`attendance-api`. Mid-session re-checks and recalibration therefore need a
+device-and-backend pass before release.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed; 0 errors and the 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test` | Passed; 16 test files and 95 tests (was 83; 12 new). |
+| `pnpm build` | Passed; Vite transformed 311 modules. CSS **73.49 kB / 15.43 kB gzip**; JS chunks **398.53 kB / 119.04 kB**, **52.42 kB / 12.95 kB** and **36.85 kB / 10.42 kB gzip**. Built in 3.89s. |

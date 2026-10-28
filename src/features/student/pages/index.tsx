@@ -17,6 +17,7 @@ import type {
   SearchOffering,
   SearchOfferingsQuery,
   SearchOfferingsResponse,
+  StudentAttendanceEntry,
   StudentAttendanceResponse,
   StudentCoursesResponse,
   StudentTimetableResponse,
@@ -340,6 +341,23 @@ export function ScheduleCard({
   );
 }
 
+/**
+ * The student's own wording for a server classification. "Awaiting
+ * confirmation" says what happens next; it is not a verdict on the student.
+ */
+function getClassificationLabel(
+  classification: StudentAttendanceEntry["classification"],
+): string {
+  const labels: Record<StudentAttendanceEntry["classification"], string> = {
+    verified: "Verified",
+    present_no_web_log: "Recorded by scan",
+    web_only_unverified: "Awaiting confirmation",
+    absent: "Absent",
+    excused: "Excused",
+  };
+  return labels[classification];
+}
+
 export function CheckIn({
   onResult,
   online,
@@ -466,15 +484,19 @@ export function CheckIn({
       }
       if (!selectedLiveClass)
         throw new Error("Choose a live class before checking in.");
-      if (!coordinates)
-        throw new Error("Share your location before checking in.");
+      // Location never refuses a check-in: the code and the device binding
+      // prove presence, so a missing fix is simply left out of the payload.
       const payload: CheckInRequest = {
         session_id: selectedLiveClass.session_id,
         code: digits,
-        lat: coordinates.lat,
-        lng: coordinates.lng,
-        accuracy: coordinates.accuracy,
         device_hash: getDeviceHash(),
+        ...(coordinates
+          ? {
+              lat: coordinates.lat,
+              lng: coordinates.lng,
+              accuracy: coordinates.accuracy,
+            }
+          : {}),
       };
       const result = await apiRequest<CheckInResponse>("/checkins", {
         method: "POST",
@@ -538,6 +560,13 @@ export function CheckIn({
                   venue
                 </p>
               )}
+              {checkInResponse?.location_unverified && (
+                <p className="location-advisory">
+                  Your location couldn't be matched to the venue, so your
+                  lecturer will confirm this one. Your attendance is recorded
+                  either way — a fingerprint scan clears it fastest.
+                </p>
+              )}
               <div className="web-checkin-saved">
                 <Icon name="check" size={14} /> Web check-in saved
               </div>
@@ -566,11 +595,20 @@ export function CheckIn({
                   ? "Take a short break"
                   : errorCode === "device_not_bound"
                     ? "One quick approval first"
-                    : errorCode === "code_expired"
-                      ? "That code has expired"
-                      : "Let's try that again"}
+                    : errorCode === "device_already_used"
+                      ? "This phone is already in use for this class"
+                      : errorCode === "code_expired"
+                        ? "That code has expired"
+                        : "Let's try that again"}
               </h2>
               <p>{error}</p>
+              {errorCode === "device_already_used" && (
+                <p className="lockout-note">
+                  A phone records one student per class, so your attendance
+                  could not be added on this one. Check in on your own phone, or
+                  ask your lecturer to record you before you leave.
+                </p>
+              )}
               {errorCode === "too_many_attempts" && (
                 <p className="lockout-note">
                   Check-in is temporarily locked. Please wait before trying
@@ -604,9 +642,9 @@ export function CheckIn({
                 <div className="checkin-offline" role="alert">
                   <b>No connection</b>
                   <span>
-                    Check-ins can't be saved offline, because the code and your
-                    location are verified live. Tell your lecturer, who can mark
-                    you manually.
+                    Check-ins can't be saved offline, because the class code is
+                    verified live. Tell your lecturer, who can mark you
+                    manually.
                   </span>
                 </div>
               )}
@@ -764,8 +802,11 @@ export function CheckIn({
               <div className="section-title location-title">
                 <span className="step-number">03</span>
                 <div>
-                  <h2>Confirm your location</h2>
-                  <p>Your location helps verify you're in class.</p>
+                  <h2>Confirm your location (optional)</h2>
+                  <p>
+                    Sharing your location helps confirm you're in class. You can
+                    check in without it.
+                  </p>
                 </div>
               </div>
               <div className="location-box">
@@ -776,7 +817,7 @@ export function CheckIn({
                   <b>Location is only used for this check-in</b>
                   <span>
                     {locationText ||
-                      "We only use your location to confirm you're near the class venue."}
+                      "Optional. If you share it, we only use it to confirm you're near the class venue."}
                   </span>
                 </div>
                 <button className="location-button" onClick={requestLocation}>
@@ -790,7 +831,7 @@ export function CheckIn({
                   className={`accuracy-note ${accuracy > 100 ? "accuracy-warning" : ""}`}
                 >
                   {accuracy > 100
-                    ? "Accuracy is over 100 m. Try moving near a window for a clearer signal."
+                    ? "Accuracy is over 100 m. You can still check in; moving near a window gives a clearer signal."
                     : `Location accuracy: about ${Math.round(accuracy)} m`}
                 </div>
               )}
@@ -1366,7 +1407,8 @@ export function History() {
                 <div className="history-course">
                   <b>{selectedCourse?.course_title ?? "Course session"}</b>
                   <span>
-                    {selectedCourse?.course_code} · {item.classification.replaceAll("_", " ")}
+                    {selectedCourse?.course_code} ·{" "}
+                    {getClassificationLabel(item.classification)}
                     {item.override_reason ? ` · ${item.override_reason}` : ""}
                   </span>
                 </div>

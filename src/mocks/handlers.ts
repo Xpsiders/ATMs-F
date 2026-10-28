@@ -1,5 +1,6 @@
 import { http, HttpResponse } from "msw";
 import type {
+  CaptureVenueLocationRequest,
   CheckInRequest,
   CurrentUser,
   CreateAcademicSessionRequest,
@@ -18,6 +19,7 @@ import type {
   SignupRequestsResponse,
   StaffImportPreview,
   SearchOfferingsQuery,
+  SessionLocationRequest,
   SetOfferingLecturersRequest,
   StartSessionRequest,
   UpdateAcademicSessionRequest,
@@ -30,6 +32,8 @@ import {
   resetDemoPassword,
 } from "@/mocks/auth";
 import {
+  bindDemoDevice,
+  captureDemoVenueLocation,
   createDemoAcademicSession,
   createDemoCourse,
   deleteDemoCourse,
@@ -49,6 +53,8 @@ import {
   regenerateDemoPairingCode,
   revokeDemoDevice,
   rotateDemoDeviceKey,
+  updateDemoSessionLocation,
+  getDemoDeviceOwner,
   getDemoSession,
   getDemoSessionCode,
   getDemoState,
@@ -629,6 +635,19 @@ export const handlers = [
       return apiError(404, "resource_not_found", "Venue was not found.");
     return HttpResponse.json({});
   }),
+  http.post(`${apiBaseUrl}/venues/:id/location`, async ({ params, request }) => {
+    const payload = (await request.json()) as CaptureVenueLocationRequest;
+    const result = captureDemoVenueLocation(String(params.id), payload);
+    if (result === null)
+      return apiError(404, "venue_not_found", "Venue was not found.");
+    if (result === "too_inaccurate")
+      return apiError(
+        400,
+        "location_too_inaccurate",
+        "The captured fix is too imprecise to store.",
+      );
+    return HttpResponse.json(result);
+  }),
   http.delete(`${apiBaseUrl}/venues/:id`, ({ params }) =>
     deactivateDemoVenue(String(params.id))
       ? new HttpResponse(null, { status: 204 })
@@ -678,6 +697,15 @@ export const handlers = [
       ? HttpResponse.json(response)
       : apiError(409, "session_closed", "The session is not live.");
   }),
+  http.post(`${apiBaseUrl}/sessions/:id/location`, async ({ params, request }) => {
+    const payload = (await request.json()) as SessionLocationRequest;
+    const result = updateDemoSessionLocation(String(params.id), payload);
+    if (result === null)
+      return apiError(404, "session_not_found", "Session was not found.");
+    if (result === "closed")
+      return apiError(409, "session_closed", "The session is already closed.");
+    return HttpResponse.json(result);
+  }),
   http.post(`${apiBaseUrl}/sessions/:id/end`, ({ params }) => {
     const session = endDemoSession(String(params.id));
     return session
@@ -691,6 +719,15 @@ export const handlers = [
       return apiError(409, "session_closed", "The session is not live.");
     if (payload.code !== session.code)
       return apiError(400, "wrong_code", "The code did not match.");
+    if (
+      typeof payload.device_hash !== "string" ||
+      payload.device_hash.length < 8
+    )
+      return apiError(
+        400,
+        "invalid_request",
+        "A device_hash is required for every check-in.",
+      );
     const account = getMockSession();
     const student = account
       ? getDemoState().students.find(
@@ -703,14 +740,32 @@ export const handlers = [
         "not_on_roster",
         "Student is not on the class roster.",
       );
+    const deviceOwner = getDemoDeviceOwner(session.id, payload.device_hash);
+    if (deviceOwner && deviceOwner !== student.id)
+      return apiError(
+        409,
+        "device_already_used",
+        "This device has already checked in another student for this session.",
+      );
+    // Location never refuses a check-in. With no session centre, or no position
+    // from the student, there is simply nothing to measure.
+    const comparable =
+      typeof session.latitude === "number" &&
+      typeof session.longitude === "number" &&
+      typeof payload.lat === "number" &&
+      typeof payload.lng === "number";
+    const distanceMeters = comparable ? 24 : null;
+    const accuracy = payload.accuracy ?? 0;
+    bindDemoDevice(session.id, payload.device_hash, student.id);
     recordDemoCheckIn(student.id, session.id, "verified");
     return HttpResponse.json(
       {
         session_id: session.id,
         status: "present",
         on_roster: true,
-        accuracy_poor: false,
-        distance_meters: 24,
+        accuracy_poor: accuracy > 100,
+        distance_meters: distanceMeters,
+        location_unverified: false,
       },
       { status: 201 },
     );

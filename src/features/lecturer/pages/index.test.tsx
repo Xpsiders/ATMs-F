@@ -4,20 +4,32 @@ import userEvent from "@testing-library/user-event";
 import { BrowserRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import type {
+  CaptureVenueLocationRequest,
   LiveSessionResponse,
   CurrentUser,
   OfferingsResponse,
   SessionCodeResponse,
+  SessionLocationRequest,
+  SessionLocationResult,
   SessionReportResponse,
+  StartSessionRequest,
+  StartSessionResponse,
   VenueListResponse,
 } from "@/api/contracts";
 import { server } from "@/test/setup";
 import { resetDemoData } from "@/mocks/store";
-import { LiveSession, Report } from "./index";
+import { LiveSession, Report, StartSession } from "./index";
 import {
   rememberLiveSession,
   rememberSessionReport,
 } from "../liveSessionStorage";
+
+const position = vi.hoisted(() => vi.fn());
+vi.mock("@/shared/lib/geo", () => ({
+  getCurrentPosition: vi.fn(),
+  tryGetCurrentPosition: position,
+  GeoError: class GeoError extends Error {},
+}));
 
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
@@ -43,6 +55,8 @@ beforeEach(() => {
   sessionStorage.clear();
   vi.stubEnv("VITE_USE_MOCKS", "false");
   resetDemoData();
+  position.mockReset();
+  position.mockResolvedValue({ lat: 6.5244, lng: 3.3792, accuracy: 12.5 });
 });
 
 afterEach(() => {
@@ -289,5 +303,309 @@ describe("lecturer session data", () => {
         });
       else Reflect.deleteProperty(URL, "revokeObjectURL");
     }
+  });
+  it("starts a class with location refused and sends no location fields", async () => {
+    const user = userEvent.setup();
+    position.mockResolvedValue(null);
+    const offeringId = "40000000-0000-4000-8000-000000000009";
+    const venueId = "50000000-0000-4000-8000-000000000009";
+    let startBody: StartSessionRequest | null = null;
+    server.use(
+      http.get(`${apiBaseUrl}/me/offerings`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: offeringId,
+              course_code: "GEO 101",
+              course_title: "Rooms Without Coordinates",
+              session_open: false,
+              next_timetable_slot: null,
+            },
+          ],
+          limit: 1,
+          offset: 0,
+          has_more: false,
+        } satisfies OfferingsResponse),
+      ),
+      http.get(`${apiBaseUrl}/venues`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: venueId,
+              name: "Studio 3",
+              latitude: null,
+              longitude: null,
+              radius_meters: null,
+              active: true,
+            },
+          ],
+          limit: 1,
+          offset: 0,
+          total: 1,
+        } satisfies VenueListResponse),
+      ),
+      http.post(`${apiBaseUrl}/sessions`, async ({ request }) => {
+        startBody = (await request.json()) as StartSessionRequest;
+        return HttpResponse.json(
+          {
+            session: {
+              id: sessionId,
+              offering_id: offeringId,
+              venue_id: venueId,
+              started_at: "2026-10-28T08:00:00Z",
+              latitude: null,
+              longitude: null,
+              radius_meters: null,
+              rotating_code: true,
+              late_after_min: 10,
+            },
+            code: "418203",
+            seconds_remaining: 42,
+            location_source: "none",
+          } satisfies StartSessionResponse,
+          { status: 201 },
+        );
+      }),
+    );
+    renderLecturerPage(<StartSession user={lecturer} />, "/lecturer/start");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Start session" }),
+    );
+    await vi.waitFor(() => expect(startBody).not.toBeNull());
+    expect(startBody).toEqual({
+      offering_id: offeringId,
+      venue_id: venueId,
+      rotating_code: true,
+      late_after_min: 10,
+    } satisfies StartSessionRequest);
+    expect(window.location.pathname).toBe("/lecturer/live");
+  });
+
+  it("reports a session without a geofence instead of zero coordinates", async () => {
+    // Location stayed refused, so nothing re-centres the session either.
+    position.mockResolvedValue(null);
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/code`, () =>
+        HttpResponse.json({
+          session: {
+            id: sessionId,
+            offering_id: "40000000-0000-4000-8000-000000000009",
+            venue_id: "50000000-0000-4000-8000-000000000009",
+            started_at: "2026-10-28T08:00:00Z",
+            latitude: null,
+            longitude: null,
+            radius_meters: null,
+            rotating_code: true,
+            late_after_min: 10,
+          },
+          code: "418203",
+          seconds_remaining: 42,
+        } satisfies SessionCodeResponse),
+      ),
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/live`, () =>
+        HttpResponse.json({
+          session_id: sessionId,
+          counts: { web_checkins: 1, scans: 0, registered: 1 },
+          items: [],
+          limit: 200,
+          offset: 0,
+          has_more: false,
+        } satisfies LiveSessionResponse),
+      ),
+    );
+    renderLecturerPage(
+      <LiveSession user={lecturer} />,
+      `/lecturer/live?sessionId=${sessionId}`,
+    );
+
+    expect(await screen.findByText("418 203")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/No check-in area for this class/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("NaN");
+    expect(document.body.textContent).not.toContain("0, 0");
+  });
+
+  it("posts the lecturer's fix unmodified and keeps the area put on drift", async () => {
+    let locationBody: SessionLocationRequest | null = null;
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/code`, () =>
+        HttpResponse.json({
+          session: {
+            id: sessionId,
+            offering_id: "40000000-0000-4000-8000-000000000009",
+            venue_id: "50000000-0000-4000-8000-000000000009",
+            started_at: "2026-10-28T08:00:00Z",
+            latitude: 6.5244,
+            longitude: 3.3792,
+            radius_meters: 75,
+            rotating_code: true,
+            late_after_min: 10,
+          },
+          code: "418203",
+          seconds_remaining: 42,
+        } satisfies SessionCodeResponse),
+      ),
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/live`, () =>
+        HttpResponse.json({
+          session_id: sessionId,
+          counts: { web_checkins: 1, scans: 0, registered: 1 },
+          items: [],
+          limit: 200,
+          offset: 0,
+          has_more: false,
+        } satisfies LiveSessionResponse),
+      ),
+      http.post(
+        `${apiBaseUrl}/sessions/${sessionId}/location`,
+        async ({ request }) => {
+          locationBody = (await request.json()) as SessionLocationRequest;
+          return HttpResponse.json({
+            session_id: sessionId,
+            outcome: "rejected_distance",
+            latitude: 6.5244,
+            longitude: 3.3792,
+            radius_meters: 75,
+            moved_meters: 310,
+          } satisfies SessionLocationResult);
+        },
+      ),
+    );
+    renderLecturerPage(
+      <LiveSession user={lecturer} />,
+      `/lecturer/live?sessionId=${sessionId}`,
+    );
+
+    await vi.waitFor(() => expect(locationBody).not.toBeNull());
+    expect(locationBody).toEqual({
+      latitude: 6.5244,
+      longitude: 3.3792,
+      accuracy_meters: 12.5,
+    } satisfies SessionLocationRequest);
+    expect(
+      await screen.findByText(/stayed with the students in the room/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).toContain("6.52440, 3.37920");
+  });
+
+  it("recalibrates the room from the lecturer's own device", async () => {
+    const user = userEvent.setup();
+    const venueId = "50000000-0000-4000-8000-000000000009";
+    let captureBody: CaptureVenueLocationRequest | null = null;
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/code`, () =>
+        HttpResponse.json({
+          session: {
+            id: sessionId,
+            offering_id: "40000000-0000-4000-8000-000000000009",
+            venue_id: venueId,
+            started_at: "2026-10-28T08:00:00Z",
+            latitude: 6.5244,
+            longitude: 3.3792,
+            radius_meters: 75,
+            rotating_code: true,
+            late_after_min: 10,
+          },
+          code: "418203",
+          seconds_remaining: 42,
+        } satisfies SessionCodeResponse),
+      ),
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/live`, () =>
+        HttpResponse.json({
+          session_id: sessionId,
+          counts: { web_checkins: 0, scans: 0, registered: 0 },
+          items: [],
+          limit: 200,
+          offset: 0,
+          has_more: false,
+        } satisfies LiveSessionResponse),
+      ),
+      http.post(`${apiBaseUrl}/sessions/${sessionId}/location`, () =>
+        HttpResponse.json({
+          session_id: sessionId,
+          outcome: "unchanged",
+          latitude: 6.5244,
+          longitude: 3.3792,
+          radius_meters: 75,
+          moved_meters: 2,
+        } satisfies SessionLocationResult),
+      ),
+      http.post(`${apiBaseUrl}/venues/${venueId}/location`, async ({ request }) => {
+        captureBody = (await request.json()) as CaptureVenueLocationRequest;
+        return HttpResponse.json({
+          id: venueId,
+          name: "Studio 3",
+          latitude: 6.5244,
+          longitude: 3.3792,
+          radius_meters: 75,
+          active: true,
+        });
+      }),
+    );
+    renderLecturerPage(
+      <LiveSession user={lecturer} />,
+      `/lecturer/live?sessionId=${sessionId}`,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Recalibrate this room" }),
+    );
+    await vi.waitFor(() => expect(captureBody).not.toBeNull());
+    expect(captureBody).toEqual({
+      latitude: 6.5244,
+      longitude: 3.3792,
+      accuracy_meters: 12.5,
+    } satisfies CaptureVenueLocationRequest);
+    expect(
+      await screen.findByText(/Studio 3 is now centred/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows every unverified reason as one severity of needs confirmation", async () => {
+    const reasons = [
+      ["scanner_unavailable", "Scanner marked unavailable"],
+      ["scanner_offline", "No scanner heartbeat at check-in"],
+      ["location_unverified", "Location could not be matched"],
+      ["no_fingerprint", "No fingerprint scan"],
+    ] as const;
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/report`, () =>
+        HttpResponse.json({
+          session_id: sessionId,
+          scanner_coverage: { state: "partial", offline_intervals: [] },
+          items: reasons.map(([reason], index) => ({
+            student_record_id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+            matric_no: `API-100${index + 1}`,
+            display_name: `Student ${reason}`,
+            department_id: "70000000-0000-4000-8000-000000000001",
+            level: 400,
+            on_roster: true,
+            classification: "web_only_unverified" as const,
+            status: "present",
+            reason,
+          })),
+          limit: 200,
+          offset: 0,
+          has_more: false,
+        } satisfies SessionReportResponse),
+      ),
+    );
+    renderLecturerPage(
+      <Report user={lecturer} />,
+      `/lecturer/report?sessionId=${sessionId}`,
+    );
+
+    expect(
+      await screen.findByText(/4 records need confirmation/),
+    ).toBeInTheDocument();
+    // One classification, one severity: the server cannot tell these apart.
+    const chips = document.querySelectorAll(
+      ".report-table .status-chip.web_only_unverified",
+    );
+    expect(chips).toHaveLength(reasons.length);
+    for (const [, label] of reasons)
+      expect(await screen.findAllByText(label)).not.toHaveLength(0);
+    expect(document.body.textContent).not.toContain("proxy");
   });
 });

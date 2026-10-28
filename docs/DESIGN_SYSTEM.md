@@ -17,17 +17,17 @@ All listed pairs are evaluated with the included WCAG relative-luminance helper 
 | `#FFFFFF` on `#2452C4` | Dark-mode primary button | 6.7:1 |
 | `#E8B923` on `#0D1F4A` | Gold code/focus accent on navy | 8.7:1 |
 | `#0B5F34` on `#E3F4EA` | Verified badge | 6.0:1 |
-| `#A4161A` on `#FDE9E8` | Suspected-proxy badge | 6.4:1 |
+| `#8A3B00` on `#FFF0DD` | Needs-confirmation badge | 6.9:1 |
 | `#1B3F9B` on `#EAF0FF` | Scan-only badge | 7.2:1 |
 | `#475569` on `#ECEFF4` | Absent badge | 6.0:1 |
 | `#7EDBA6` on `#163B2A` | Dark verified badge | 7.3:1 |
-| `#FF9A94` on `#48232B` | Dark suspected-proxy badge | 5.8:1 |
+| `#FFC68E` on `#47321F` | Dark needs-confirmation badge | 7.9:1 |
 | `#9DB8FF` on `#1B3158` | Dark scan-only badge | 5.8:1 |
 | `#C3CBDA` on `#27344A` | Dark absent badge | 6.9:1 |
 
 Light tokens use navy `#0A1734`, blue `#1B3F9B`, gold `#D4A017`, ink `#0F172A` and mist `#F5F7FB`. Dark mode uses page `#070F24`, surface `#0D1F4A`, surface-2 `#12306E`, border `#1E3A7A`, text `#F5F7FB` and muted `#B8C5E8`. Theme options are Auto, Light and Dark; the choice is remembered in local storage with a safe fallback. System preference applies in Auto mode.
 
-Gold is never body text on a light surface. Gold is reserved for highlights, active indicators, progress fills and large key numbers, always paired with navy text when used as a surface. Attendance states use icon plus label and remain distinct from gold: verified green, suspected proxy red, scan only blue, absent slate, late orange, excused purple and off-roster neutral outline.
+Gold is never body text on a light surface. Gold is reserved for highlights, active indicators, progress fills and large key numbers, always paired with navy text when used as a surface. Attendance states use icon plus label and remain distinct from gold: verified green, needs confirmation amber, scan only blue, absent slate, late orange, excused purple and off-roster neutral outline. Needs confirmation is amber, never red: every reason behind it (scanner unavailable, scanner offline, location unverified, no fingerprint) is an unresolved signal, not an accusation, so all four share one badge and one severity.
 
 ## Responsive and interaction behavior
 

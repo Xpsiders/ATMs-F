@@ -41,13 +41,13 @@ The initial in-memory mock store has ENG 301, CPE 305, GST 201, and CPE 318. `GE
 | Student | Ifeoma Obi — id `2021-17703`, matric `2021 / 17703`, Computer Engineering |
 | Student | Chidi Nwosu — id `2021-19401`, matric `2021 / 19401`, Electrical Engineering |
 
-The report sample starts with six rows: two verified, one suspected proxy, one scan-only, and two absent. These are server-shaped sample classifications, not a reclassification algorithm or a representative set for the session totals. The print-sheet page displays all six seeded students.
+The report sample starts with six rows: two verified, one needing confirmation (reason `location_unverified`), one scan-only, and two absent. These are server-shaped sample classifications, not a reclassification algorithm or a representative set for the session totals. The print-sheet page displays all six seeded students.
 
 ## Scenario switches
 
 | Switch | Available values / behavior | Screen |
 |---|---|---|
-| Check-in error selector | Success with code `381204`, plus `wrong_code`, `code_expired`, `session_closed`, `outside_radius`, `not_on_roster`, `already_checked_in`, `accuracy_too_poor`, `too_many_attempts`, `device_not_bound`, `code_locked`, `account_temporarily_locked`, `no_active_session`, `rate_limited`, `device_key_revoked`, `token_reuse_detected`, `lecturer_has_open_session`, `venue_has_open_session` | Student check-in; development-only |
+| Check-in error selector | Success with code `381204`, plus `wrong_code`, `code_expired`, `session_closed`, `not_on_roster`, `already_checked_in`, `accuracy_too_poor`, `device_already_used`, `location_too_inaccurate`, `too_many_attempts`, `device_not_bound`, `code_locked`, `account_temporarily_locked`, `no_active_session`, `rate_limited`, `device_key_revoked`, `token_reuse_detected`, `lecturer_has_open_session`, `venue_has_open_session` | Student check-in; development-only |
 | Live-session scenario selector | Normal scanner/projector state, scanner offline, projector unavailable; scanner selection updates shared scanner coverage | Lecturer live session; development-only |
 | Report scanner selector | Scanner online / scanner offline; updates the same shared scanner state as the live screen | Lecturer report; development-only |
 | Network state | Uses browser `online` / `offline` events; there is no mock scenario selector yet | App shell and check-in |
