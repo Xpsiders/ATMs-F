@@ -192,6 +192,58 @@ describe("lecturer session data", () => {
     expect(screen.queryByText("Amara Okafor")).not.toBeInTheDocument();
   });
 
+  it("keeps proxy classification, attendance status, and backend reason separate", async () => {
+    const report: SessionReportResponse = {
+      session_id: sessionId,
+      scanner_coverage: { state: "full", offline_intervals: [] },
+      items: [
+        {
+          student_record_id: "60000000-0000-4000-8000-000000000001",
+          matric_no: "API-1001",
+          display_name: "Proxy Review Student",
+          department_id: "70000000-0000-4000-8000-000000000001",
+          level: 400,
+          on_roster: true,
+          classification: "proxy",
+          status: "present",
+          reason: "location_unverified",
+        },
+        {
+          student_record_id: "60000000-0000-4000-8000-000000000002",
+          matric_no: "API-1002",
+          display_name: "Fingerprint Confirmed Student",
+          department_id: "70000000-0000-4000-8000-000000000001",
+          level: 400,
+          on_roster: true,
+          classification: "present_no_web_log",
+          status: "present",
+        },
+      ],
+      limit: 200,
+      offset: 0,
+      has_more: false,
+    };
+    server.use(
+      http.get(`${apiBaseUrl}/sessions/${sessionId}/report`, () =>
+        HttpResponse.json(report),
+      ),
+    );
+    renderLecturerPage(<Report user={lecturer} />, `/lecturer/report?sessionId=${sessionId}`);
+
+    const proxyRow = await screen.findByRole("row", {
+      name: /Proxy Review Student/,
+    });
+    expect(proxyRow).toHaveTextContent("Present");
+    expect(proxyRow).toHaveTextContent("Needs review (proxy)");
+    expect(proxyRow).toHaveTextContent("Location could not be matched");
+
+    const fingerprintRow = screen.getByRole("row", {
+      name: /Fingerprint Confirmed Student/,
+    });
+    expect(fingerprintRow).toHaveTextContent("Present");
+    expect(fingerprintRow).toHaveTextContent("Scan only");
+  });
+
   it("opens a completed report from saved session history without a URL ID", async () => {
     const report: SessionReportResponse = {
       session_id: sessionId,
@@ -606,6 +658,5 @@ describe("lecturer session data", () => {
     expect(chips).toHaveLength(reasons.length);
     for (const [, label] of reasons)
       expect(await screen.findAllByText(label)).not.toHaveLength(0);
-    expect(document.body.textContent).not.toContain("proxy");
   });
 });

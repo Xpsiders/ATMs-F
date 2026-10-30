@@ -10,13 +10,18 @@ import type {
 } from "@/api/contracts";
 import { server } from "@/test/setup";
 import { resetDemoData } from "@/mocks/store";
+import { GeoError } from "@/shared/lib/geo";
 import { CheckIn } from "./index";
 
 const geoPosition = vi.hoisted(() => vi.fn());
 vi.mock("@/shared/lib/geo", () => ({
   getCurrentPosition: geoPosition,
   tryGetCurrentPosition: vi.fn(),
-  GeoError: class GeoError extends Error {},
+  GeoError: class GeoError extends Error {
+    constructor(_code: string, message: string) {
+      super(message);
+    }
+  },
 }));
 
 const apiBaseUrl =
@@ -76,7 +81,7 @@ async function enterCode(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("student check-in", () => {
-  it("records a check-in with no position and still sends the device hash", async () => {
+  it("requests and sends a GPS fix with the device hash when checking in", async () => {
     const user = userEvent.setup();
     let body: CheckInRequest | null = null;
     server.use(
@@ -107,17 +112,23 @@ describe("student check-in", () => {
     expect(sent.session_id).toBe(sessionId);
     expect(sent.code).toBe("418203");
     expect(sent.device_hash.length).toBeGreaterThanOrEqual(8);
-    expect(sent).not.toHaveProperty("lat");
-    expect(sent).not.toHaveProperty("lng");
-    expect(sent).not.toHaveProperty("accuracy");
+    expect(geoPosition).toHaveBeenCalledTimes(1);
+    expect(sent.lat).toBe(6.5244);
+    expect(sent.lng).toBe(3.3792);
+    expect(sent.accuracy).toBe(12.5);
     // A null distance must never reach the screen as a number.
     expect(document.body.textContent).not.toContain("NaN");
     expect(document.body.textContent).not.toContain("0 m from the venue");
   });
 
-  it("sends the browser's own accuracy unmodified when a fix is shared", async () => {
+  it("sends a distant GPS fix without rejecting check-in in the frontend", async () => {
     const user = userEvent.setup();
     let body: CheckInRequest | null = null;
+    geoPosition.mockResolvedValueOnce({
+      lat: 60.123,
+      lng: 90.456,
+      accuracy: 5000,
+    });
     server.use(
       http.post(`${apiBaseUrl}/checkins`, async ({ request }) => {
         body = (await request.json()) as CheckInRequest;
@@ -127,7 +138,7 @@ describe("student check-in", () => {
             status: "present",
             on_roster: true,
             accuracy_poor: false,
-            distance_meters: 18.6,
+            distance_meters: 11000000,
             location_unverified: true,
           } satisfies CheckInResponse,
           { status: 201 },
@@ -135,10 +146,6 @@ describe("student check-in", () => {
       }),
     );
     renderCheckIn();
-    await user.click(
-      await screen.findByRole("button", { name: "Share location" }),
-    );
-    await screen.findByText("Location ready");
     await enterCode(user);
     await user.click(screen.getByRole("button", { name: /Check in to class/ }));
 
@@ -147,13 +154,104 @@ describe("student check-in", () => {
     ).toBeInTheDocument();
     const sent = body as CheckInRequest | null;
     if (!sent) throw new Error("The check-in request was not sent.");
-    expect(sent.lat).toBe(6.5244);
-    expect(sent.lng).toBe(3.3792);
-    expect(sent.accuracy).toBe(12.5);
-    // An unverified position is recorded, explained, and never a refusal.
+    expect(sent.lat).toBe(60.123);
+    expect(sent.lng).toBe(90.456);
+    expect(sent.accuracy).toBe(5000);
+    expect(screen.getByText(/your lecturer can review it/)).toBeInTheDocument();
+  });
+
+  it("requires a valid GPS fix and retries after a browser location failure", async () => {
+    const user = userEvent.setup();
+    let requestCount = 0;
+    geoPosition.mockRejectedValueOnce(
+      new GeoError("permission-denied", "Location permission denied."),
+    );
+    server.use(
+      http.post(`${apiBaseUrl}/checkins`, () => {
+        requestCount += 1;
+        return HttpResponse.json(
+          {
+            session_id: sessionId,
+            status: "present",
+            on_roster: true,
+            accuracy_poor: false,
+            distance_meters: null,
+            location_unverified: false,
+          } satisfies CheckInResponse,
+          { status: 201 },
+        );
+      }),
+    );
+    renderCheckIn();
+    await enterCode(user);
+    await user.click(screen.getByRole("button", { name: /Check in to class/ }));
+
     expect(
-      screen.getByText(/your lecturer will confirm this one/),
+      await screen.findByRole("heading", {
+        name: "Location is required to check in",
+      }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Allow your browser to access your location/)).toBeInTheDocument();
+    expect(screen.getByText(/Location permission denied/)).toBeInTheDocument();
+    expect(requestCount).toBe(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry location and check in" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: /You're checked in/ }),
+    ).toBeInTheDocument();
+    expect(requestCount).toBe(1);
+  });
+
+  it("handles backend location_required with a location-and-check-in retry", async () => {
+    const user = userEvent.setup();
+    let requestCount = 0;
+    server.use(
+      http.post(`${apiBaseUrl}/checkins`, () => {
+        requestCount += 1;
+        if (requestCount === 1)
+          return HttpResponse.json(
+            {
+              error: {
+                code: "location_required",
+                message: "A valid location is required for check-in",
+                details: {},
+              },
+            },
+            { status: 400 },
+          );
+        return HttpResponse.json(
+          {
+            session_id: sessionId,
+            status: "present",
+            on_roster: true,
+            accuracy_poor: false,
+            distance_meters: null,
+            location_unverified: false,
+          } satisfies CheckInResponse,
+          { status: 201 },
+        );
+      }),
+    );
+    renderCheckIn();
+    await enterCode(user);
+    await user.click(screen.getByRole("button", { name: /Check in to class/ }));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Location is required to check in",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Allow your browser to access your location/)).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Retry location and check in" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: /You're checked in/ }),
+    ).toBeInTheDocument();
+    expect(requestCount).toBe(2);
+    expect(geoPosition).toHaveBeenCalledTimes(2);
   });
 
   it("explains a device already used by another student without accusing", async () => {

@@ -1,8 +1,10 @@
 # API contract notes
 
-`api/openapi.yaml` is currently synced from the sibling backend repository. The
-generated types in `src/api/schema.d.ts` are the source of truth for API
-operations and payloads; frontend aliases are maintained in
+`api/openapi.yaml` is the frontend's working copy of the backend contract. Its
+check-in GPS requirements and attendance classification values reflect the
+backend rules supplied for this change; keep the sibling API specification in
+sync. The generated types in `src/api/schema.d.ts` are the source of truth for
+API operations and payloads; frontend aliases are maintained in
 `src/api/contracts.ts`.
 
 ## Confirmed contract details used by the UI
@@ -19,12 +21,12 @@ operations and payloads; frontend aliases are maintained in
 | `GET /me/live-classes` | Returns live sessions visible to the authenticated student, including session/offering/venue IDs and course display fields. |
 | `GET /me/timetable` | Returns today's timetable entries with offering, course, venue, start/end time, and live indicator. |
 | `GET /me/courses` | Returns approved courses with session counts, attendance percentage, minimum threshold, and below-threshold boolean. |
-| `GET /me/attendance?offering_id={uuid}` | Returns per-session attendance status, classification, date, and optional override reason for one approved course. |
+| `GET /me/attendance?offering_id={uuid}` | Returns per-session attendance status, classification (including `proxy`), date, and optional override reason for one approved course. |
 | `GET /me/registrations` | Returns pending registration requests with course labels and created timestamp. |
 | `GET /departments` | Returns a paginated catalogue of departments. The generated catalogue item guarantees `id`; the UI uses `name` only when the backend includes it. |
 | `GET /offerings/search?q=...` | Returns typed offering/course identity, department, level, kind, registration mode, lecturers, and registration status flags. |
 | `POST /offerings/{id}/registrations` | Submits registration for open offerings or a request for approval-mode offerings; response includes approved/pending state. |
-| `POST /checkins` | Requires session ID, six-digit code, coordinates, and accuracy; returns `present` or `late`, roster/accuracy flags, and distance. |
+| `POST /checkins` | Requires session ID, six-digit code, `lat`, `lng`, `accuracy`, and the existing device hash. The frontend captures a fresh browser GPS fix for each attempt; `location_required` is retryable. The session code remains decisive: distance is evidence and never a frontend refusal. Response status is server-owned. |
 | `POST /sessions` | The frontend sends exactly `offering_id`, `venue_id`, boolean `rotating_code`, and numeric `late_after_min` as JSON. The response includes the created `session.id`, code, and server-authoritative remaining seconds. |
 | `GET /sessions/{id}/code` | Returns `session`, `code`, and server-authoritative `seconds_remaining`. |
 | `PATCH /sessions/{id}` | `{ rotating: false }` converts once to fixed code; response is the session code response. |
@@ -43,7 +45,7 @@ operations and payloads; frontend aliases are maintained in
 | `GET/POST/PATCH/DELETE /academic-sessions` and `/semesters` | Lists are paginated generic catalogue items that guarantee only `id`; the UI reads optional names, dates, and parent-session IDs when present. Create/update bodies use generated request types; delete returns 204. |
 | `POST /role-assignments` | Assigns only `department_admin` or `faculty_admin` with the matching `scope_type` and scope UUID. The UI collects the user/scope UUIDs because the contract exposes no user or faculty lookup for this form. |
 | `GET /sessions/{id}/live` | Returns current paginated session counts and roster classification. The live screen polls this endpoint every five seconds and loads all returned roster pages; the contract does not include web/scan timestamps or scanner coverage here. |
-| `GET /sessions/{id}/report` | JSON returns paginated attendance classifications and scanner-coverage intervals. The report page collects all JSON pages; the contract does not include web/scan timestamps or department names, so those display as unavailable / department IDs. |
+| `GET /sessions/{id}/report` | JSON returns paginated attendance statuses, classifications (including review-needed `proxy`), optional backend reason codes, and scanner-coverage intervals. The report page shows status separately from classification and displays the reason when present. It renders server results without recalculating scan or GPS evidence; matching fingerprint scans may confirm attendance without a web check-in or override distant phone GPS. The contract does not include web/scan timestamps or department names, so those display as unavailable / department IDs. |
 | `GET /sessions/{id}/report?format=pdf` | Returns the session report as `application/pdf`; the report screen downloads this server-generated PDF using the active session ID. |
 | `GET /sessions/{id}/roster-sheet?format=pdf` | Returns the ordered attendance roster as `application/pdf`; the roster screen supports this PDF download as well as browser printing. |
 

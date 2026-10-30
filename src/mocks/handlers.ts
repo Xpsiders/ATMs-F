@@ -742,6 +742,21 @@ export const handlers = [
         "invalid_request",
         "A device_hash is required for every check-in.",
       );
+    if (
+      !Number.isFinite(payload.lat) ||
+      payload.lat < -90 ||
+      payload.lat > 90 ||
+      !Number.isFinite(payload.lng) ||
+      payload.lng < -180 ||
+      payload.lng > 180 ||
+      !Number.isFinite(payload.accuracy) ||
+      payload.accuracy < 0
+    )
+      return apiError(
+        400,
+        "location_required",
+        "A valid location is required for check-in.",
+      );
     const account = getMockSession();
     const student = account
       ? getDemoState().students.find(
@@ -761,8 +776,7 @@ export const handlers = [
         "device_already_used",
         "This device has already checked in another student for this session.",
       );
-    // Location never refuses a check-in. With no session centre, or no position
-    // from the student, there is simply nothing to measure.
+    // A valid location is required, but distance never blocks the check-in.
     const comparable =
       typeof session.latitude === "number" &&
       typeof session.longitude === "number" &&

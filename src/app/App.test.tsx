@@ -386,7 +386,7 @@ describe("Campus Attendance screens", () => {
     const user = userEvent.setup();
     renderApp("/check-in");
     await user.click(
-      await screen.findByRole("button", { name: "Share location" }),
+      await screen.findByRole("button", { name: "Get location" }),
     );
     expect(await screen.findByText("Location ready")).toBeInTheDocument();
     await user.type(
@@ -1843,7 +1843,7 @@ describe("Campus Attendance screens", () => {
       await screen.findByRole("combobox", { name: "Live class" }),
       createdSession.id,
     );
-    await user.click(screen.getByRole("button", { name: "Share location" }));
+    await user.click(screen.getByRole("button", { name: "Get location" }));
     await screen.findByText("Location ready");
     await user.type(
       screen.getByRole("textbox", { name: "Code digit 1" }),
@@ -2108,7 +2108,7 @@ describe("Campus Attendance screens", () => {
     renderApp("/check-in");
 
     await user.click(
-      await screen.findByRole("button", { name: "Share location" }),
+      await screen.findByRole("button", { name: "Get location" }),
     );
     await screen.findByText("Location ready");
     await user.type(

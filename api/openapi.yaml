@@ -310,7 +310,7 @@ paths:
                         session_id: {type: string, format: uuid}
                         date: {type: string, format: date}
                         status: {type: string, enum: [present, late, absent, excused]}
-                        classification: {type: string, enum: [verified, present_no_web_log, web_only_unverified, absent, excused]}
+                        classification: {type: string, enum: [verified, present_no_web_log, web_only_unverified, proxy, absent, excused]}
                         override_reason: {type: [string, "null"]}
         "400":
           description: offering_id is missing or is not a UUID.
@@ -1425,11 +1425,9 @@ paths:
       responses:
         "201":
           description: >-
-            Check-in recorded. Location never refuses a check-in: a missing,
-            vague, or distant position is recorded and, where there was a
-            position to compare, flagged with `location_unverified` for the
-            lecturer. Presence is proved by the rotating code and the device
-            binding instead.
+            Check-in recorded. A valid GPS fix is required in the request, but
+            distance from the venue never refuses a valid-code check-in. The
+            backend evaluates the fix as evidence and may flag it for review.
           content:
             application/json:
               schema:
@@ -1443,8 +1441,8 @@ paths:
                 location_unverified: false
         "400":
           description: >-
-            Invalid JSON, a missing or malformed `device_hash`, a wrong or
-            expired code, or a student not on the roster.
+            Invalid JSON, missing or malformed device/location fields, a wrong
+            or expired code, or a student not on the roster.
           content:
             application/json:
               schema:
@@ -1461,6 +1459,12 @@ paths:
                     error:
                       code: not_on_roster
                       message: Student is not registered for this offering
+                      details: {}
+                locationRequired:
+                  value:
+                    error:
+                      code: location_required
+                      message: A valid location is required for check-in
                       details: {}
         "401":
           description: Missing, expired, or invalid access token.
@@ -1692,7 +1696,7 @@ paths:
                         matric_no: {type: string}
                         display_name: {type: string}
                         status: {type: string, enum: [present, late, absent, excused]}
-                        classification: {type: string, enum: [verified, present_no_web_log, web_only_unverified, absent, excused]}
+                        classification: {type: string, enum: [verified, present_no_web_log, web_only_unverified, proxy, absent, excused]}
                         on_roster: {type: boolean}
                         has_web_checkin: {type: boolean}
                         has_scan: {type: boolean}
@@ -3644,21 +3648,22 @@ components:
           type: boolean
         classification:
           type: string
-          enum: [verified, present_no_web_log, web_only_unverified, absent, excused]
+          enum: [verified, present_no_web_log, web_only_unverified, proxy, absent, excused]
+          description: >-
+            Server classification; `proxy` requires review and is not confirmed
+            presence. This is independent of the attendance `status`.
         status:
           type: string
         reason:
           type: string
           description: >-
-            Why a web_only_unverified row could not be verified:
-            `scanner_unavailable` or `scanner_offline` when no scanner covered
-            the check-in, `location_unverified` when the student's phone
-            reported a fix further from the venue than its own accuracy can
-            explain, or `no_fingerprint` when a working scanner was available
-            and the student checked in on the web without scanning. None of
-            these is an accusation: the check-in still passed a live rotating
-            code and the one-student-per-device binding. Confirm or clear them
-            with an attendance override.
+            Backend-provided reason for a classification that needs review,
+            such as `scanner_unavailable`, `scanner_offline`,
+            `location_unverified`, or `no_fingerprint`. The frontend must show
+            this reason without recalculating attendance. A matching
+            fingerprint scan may confirm presence without a web check-in and
+            may override distant phone GPS; status and classification remain
+            separate server results.
     RosterPage:
       type: object
       required: [session_id, items, limit, offset, has_more]
@@ -3795,7 +3800,7 @@ components:
           description: Present for student roles; identifies the locked academic level.
     CheckinRequest:
       type: object
-      required: [session_id, code, device_hash]
+      required: [session_id, code, lat, lng, accuracy, device_hash]
       additionalProperties: false
       properties:
         session_id:
@@ -3808,21 +3813,16 @@ components:
           type: number
           minimum: -90
           maximum: 90
-          description: >-
-            Optional. Send it when the browser offers a position, omit it when
-            the student denies permission or no fix is available. It is never a
-            reason to refuse the check-in.
+          description: Required GPS latitude captured when the student checks in.
         lng:
           type: number
           minimum: -180
           maximum: 180
-          description: Optional; send it together with lat.
+          description: Required GPS longitude captured with lat.
         accuracy:
           type: number
           minimum: 0
-          description: >-
-            The device's own reported accuracy in metres, when lat/lng are
-            sent. It widens the tolerance rather than narrowing it.
+          description: The device's reported GPS accuracy in metres.
         device_hash:
           type: string
           minLength: 8

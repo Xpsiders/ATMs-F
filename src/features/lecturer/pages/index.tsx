@@ -62,6 +62,8 @@ type ReportDisplayRow = {
   web: string;
   scan: string;
   status: string;
+  attendanceLabel: string;
+  classificationClass: string;
   label: string;
   flags: string[];
 };
@@ -76,6 +78,7 @@ function getClassificationLabel(
     verified: "Verified",
     present_no_web_log: "Scan only",
     web_only_unverified: "Needs confirmation",
+    proxy: "Needs review (proxy)",
     absent: "Absent",
     excused: "Excused",
   };
@@ -137,21 +140,16 @@ const SESSION_LOCATION_NOTES: Record<SessionLocationSource, string> = {
     "This class has no check-in area, so check-ins carry no distance. Attendance still works normally.",
 };
 
-function getReportStatus(
-  classification: SessionReportResponse["items"][number]["classification"],
-  status: string,
+function getClassificationClass(
+  classification: LiveSessionResponse["items"][number]["classification"],
 ) {
-  if (status.toLowerCase() === "late") return "Late";
-  return getClassificationLabel(classification);
-}
-
-function getReportStatusClass(
-  classification: SessionReportResponse["items"][number]["classification"],
-  status: string,
-) {
-  if (status.toLowerCase() === "late") return "late";
+  if (classification === "proxy") return "web_only_unverified";
   if (classification === "present_no_web_log") return "scan_only";
   return classification;
+}
+
+function getAttendanceStatusLabel(status: string) {
+  return status.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 async function getAllLiveSessionRows(
@@ -200,6 +198,28 @@ const ATTENDANCE_STATUS_LABELS: Record<DemoAttendance["status"], string> = {
   late: "Late",
   excused: "Excused",
 };
+
+function getDemoClassificationLabel(status: DemoAttendance["status"]) {
+  switch (status) {
+    case "needs_confirmation":
+    case "late":
+      return "Needs confirmation";
+    case "scan_only":
+      return "Scan only";
+    case "absent":
+      return "Absent";
+    case "excused":
+      return "Excused";
+    default:
+      return "Verified";
+  }
+}
+
+function getDemoAttendanceStatus(status: DemoAttendance["status"]) {
+  return status === "late" || status === "absent" || status === "excused"
+    ? status
+    : "present";
+}
 
 function getOfferingLabel(offering: OfferingsResponse["items"][number]) {
   const code =
@@ -884,8 +904,8 @@ export function LiveSession({ user }: { user: CurrentUser }) {
     : (liveData?.items ?? []).map((row) => ({
       name: row.display_name,
       matric: row.matric_no,
-      status: getReportStatusClass(row.classification, row.status),
-      label: getReportStatus(row.classification, row.status),
+      status: row.status.toLowerCase(),
+      label: getAttendanceStatusLabel(row.status),
         flags:
           row.classification === "verified" ||
           row.classification === "absent" ||
@@ -1454,8 +1474,17 @@ export function Report({ user }: { user: CurrentUser }) {
         department: student.department,
         web: record.webTime,
         scan: record.scanTime,
-        status: record.status,
-        label: ATTENDANCE_STATUS_LABELS[record.status],
+        status: getDemoAttendanceStatus(record.status),
+        attendanceLabel: getAttendanceStatusLabel(
+          getDemoAttendanceStatus(record.status),
+        ),
+        classificationClass:
+          record.status === "needs_confirmation" || record.status === "late"
+            ? "web_only_unverified"
+            : record.status === "scan_only"
+              ? "scan_only"
+              : record.status,
+        label: getDemoClassificationLabel(record.status),
         flags: record.flags,
       },
     ];
@@ -1469,8 +1498,10 @@ export function Report({ user }: { user: CurrentUser }) {
         department: item.department_id,
         web: "—",
         scan: "—",
-        status: getReportStatusClass(item.classification, item.status),
-        label: getReportStatus(item.classification, item.status),
+        status: item.status.toLowerCase(),
+        attendanceLabel: getAttendanceStatusLabel(item.status),
+        classificationClass: getClassificationClass(item.classification),
+        label: getClassificationLabel(item.classification),
         flags: item.reason ? [item.reason] : [],
       }));
   const registeredCount = rows.length;
@@ -1478,16 +1509,24 @@ export function Report({ user }: { user: CurrentUser }) {
   const needsConfirmationCount = rows.filter(
     (row) => row.label === "Needs confirmation",
   ).length;
+  const proxyCount = rows.filter(
+    (row) => row.label === "Needs review (proxy)",
+  ).length;
   const scanOnlyCount = rows.filter((row) => row.label === "Scan only").length;
-  const absentCount = rows.filter((row) => row.label === "Absent").length;
+  const absentCount = rows.filter((row) => row.status === "absent").length;
   const needsReviewCount = rows.filter(
     (row) =>
-      row.label === "Needs confirmation" || row.label === "Scan only",
+      row.label === "Needs confirmation" ||
+      row.label === "Needs review (proxy)" ||
+      row.label === "Scan only",
   ).length;
   const departments = [...new Set(rows.map((row) => row.department))];
   const filteredRows = rows.filter(
     (row) =>
-      (filter === "All statuses" || row.label === filter) &&
+      (filter === "All statuses" ||
+        (filter === "Late"
+          ? row.status === "late"
+          : row.label === filter)) &&
       (department === "All departments" || row.department === department),
   );
   async function exportReport(format: "csv" | "pdf") {
@@ -1662,6 +1701,14 @@ export function Report({ user }: { user: CurrentUser }) {
           with an override.
         </div>
       )}
+      {proxyCount > 0 && (
+        <div className="form-info" role="status">
+          {proxyCount} record{proxyCount === 1 ? "" : "s"}{" "}
+          {proxyCount === 1 ? "has" : "have"} a proxy classification and need
+          review. This classification is not confirmed presence; the attendance
+          status shown below is reported separately by the backend.
+        </div>
+      )}
       <div className="report-stat-grid">
         {[
           [String(verifiedCount), "Verified", "Verified attendance", "verified"],
@@ -1669,6 +1716,12 @@ export function Report({ user }: { user: CurrentUser }) {
             String(needsConfirmationCount),
             "Needs confirmation",
             "Confirm or clear these once the class has ended",
+            "needs-confirmation",
+          ],
+          [
+            String(proxyCount),
+            "Needs review (proxy)",
+            "Review this backend classification; it is not confirmed presence",
             "needs-confirmation",
           ],
           [String(scanOnlyCount), "Scan only", "Scan recorded without web check-in", "info"],
@@ -1734,6 +1787,7 @@ export function Report({ user }: { user: CurrentUser }) {
             "All statuses",
             "Verified",
             "Needs confirmation",
+            "Needs review (proxy)",
             "Scan only",
             "Absent",
             "Late",
@@ -1791,8 +1845,9 @@ export function Report({ user }: { user: CurrentUser }) {
                 <th scope="col">Department</th>
                 <th scope="col">Web time</th>
                 <th scope="col">Scan time</th>
-                <th scope="col">Status</th>
-                <th scope="col">Flags</th>
+                <th scope="col">Attendance status</th>
+                <th scope="col">Classification</th>
+                <th scope="col">Reason</th>
                 <th scope="col">Action</th>
               </tr>
             </thead>
@@ -1823,6 +1878,12 @@ export function Report({ user }: { user: CurrentUser }) {
                   <td>{row.scan}</td>
                   <td>
                     <span className={`status-chip ${row.status}`}>
+                      <i />
+                      {row.attendanceLabel}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`status-chip ${row.classificationClass}`}>
                       <i />
                       {row.label}
                     </span>
@@ -1876,6 +1937,10 @@ export function Report({ user }: { user: CurrentUser }) {
                 <b>{row.name}</b>
               </label>
               <span className={`status-chip ${row.status}`}>
+                <i />
+                {row.attendanceLabel}
+              </span>
+              <span className={`status-chip ${row.classificationClass}`}>
                 <i />
                 {row.label}
               </span>

@@ -47,11 +47,32 @@ export function getCurrentPosition(
   return new Promise((resolve, reject) => {
     geolocation.getCurrentPosition(
       ({ coords }) =>
-        resolve({
-          lat: coords.latitude,
-          lng: coords.longitude,
-          accuracy: coords.accuracy,
-        }),
+        {
+          const position = {
+            lat: coords.latitude,
+            lng: coords.longitude,
+            accuracy: coords.accuracy,
+          };
+          if (
+            !Number.isFinite(position.lat) ||
+            position.lat < -90 ||
+            position.lat > 90 ||
+            !Number.isFinite(position.lng) ||
+            position.lng < -180 ||
+            position.lng > 180 ||
+            !Number.isFinite(position.accuracy) ||
+            position.accuracy < 0
+          ) {
+            reject(
+              new GeoError(
+                "position-unavailable",
+                "Location services returned an invalid position. Please try again.",
+              ),
+            );
+            return;
+          }
+          resolve(position);
+        },
       (error) => {
         const code: GeoFailureCode =
           error.code === 1

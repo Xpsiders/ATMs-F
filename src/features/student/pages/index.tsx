@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRequest } from "@/shared/lib/apiClient";
-import { ApiError, formatApiError } from "@/api/errors";
+import { ApiError, formatApiError, presentApiError } from "@/api/errors";
 import { getDeviceHash } from "@/shared/lib/deviceHash";
 import { formatTime } from "@/shared/lib/format";
-import { getCurrentPosition, GeoError } from "@/shared/lib/geo";
+import {
+  getCurrentPosition,
+  GeoError,
+  type Coordinates,
+} from "@/shared/lib/geo";
 import type {
   CheckInRequest,
   CheckInResponse,
@@ -352,6 +356,7 @@ function getClassificationLabel(
     verified: "Verified",
     present_no_web_log: "Recorded by scan",
     web_only_unverified: "Awaiting confirmation",
+    proxy: "Needs review (proxy)",
     absent: "Absent",
     excused: "Excused",
   };
@@ -378,11 +383,6 @@ export function CheckIn({
   const [scenario, setScenario] = useState("");
   const [locationText, setLocationText] = useState("");
   const [accuracy, setAccuracy] = useState<number | null>(null);
-  const [coordinates, setCoordinates] = useState<{
-    lat: number;
-    lng: number;
-    accuracy: number;
-  } | null>(null);
   const [checkInResponse, setCheckInResponse] =
     useState<CheckInResponse | null>(null);
   const [deviceApproval, setDeviceApproval] = useState(false);
@@ -453,19 +453,23 @@ export function CheckIn({
     }
     setStatus("idle");
   }
-  async function requestLocation() {
+  async function requestLocation(): Promise<{
+    position: Coordinates | null;
+    error: string;
+  }> {
     setLocationText("Finding your location…");
     try {
       const position = await getCurrentPosition();
-      setCoordinates(position);
       setAccuracy(position.accuracy);
       setLocationText("Location ready");
+      return { position, error: "" };
     } catch (caught) {
-      setLocationText(
+      const message =
         caught instanceof GeoError
           ? caught.message
-          : "We couldn't find your location. Please try again.",
-      );
+          : "We couldn't find your location. Please try again.";
+      setLocationText(message);
+      return { position: null, error: message };
     }
   }
   async function submit() {
@@ -478,25 +482,28 @@ export function CheckIn({
       return;
     setStatus("pending");
     try {
+      if (!selectedLiveClass)
+        throw new Error("Choose a live class before checking in.");
+      const { position, error: locationError } = await requestLocation();
+      if (!position) {
+        setError(
+          `${presentApiError("location_required").message} ${locationError}`,
+        );
+        setErrorCode("location_required");
+        setStatus("error");
+        return;
+      }
       if (scenario && isMockMode()) {
         await new Promise((resolve) => window.setTimeout(resolve, 300));
         throw new ApiError(400, scenario, scenario.replaceAll("_", " "));
       }
-      if (!selectedLiveClass)
-        throw new Error("Choose a live class before checking in.");
-      // Location never refuses a check-in: the code and the device binding
-      // prove presence, so a missing fix is simply left out of the payload.
       const payload: CheckInRequest = {
         session_id: selectedLiveClass.session_id,
         code: digits,
         device_hash: getDeviceHash(),
-        ...(coordinates
-          ? {
-              lat: coordinates.lat,
-              lng: coordinates.lng,
-              accuracy: coordinates.accuracy,
-            }
-          : {}),
+        lat: position.lat,
+        lng: position.lng,
+        accuracy: position.accuracy,
       };
       const result = await apiRequest<CheckInResponse>("/checkins", {
         method: "POST",
@@ -507,7 +514,11 @@ export function CheckIn({
     } catch (caught) {
       if (caught instanceof ApiError) {
         setErrorCode(caught.code);
-        setError(formatApiError(caught));
+        setError(
+          caught.code === "location_required"
+            ? presentApiError(caught.code, caught.message).message
+            : formatApiError(caught),
+        );
         if (caught.status === 429 && caught.retryAfter)
           setCooldown(caught.retryAfter);
         if (caught.code === "device_not_bound") setDeviceApproval(true);
@@ -563,8 +574,8 @@ export function CheckIn({
               {checkInResponse?.location_unverified && (
                 <p className="location-advisory">
                   Your location couldn't be matched to the venue, so your
-                  lecturer will confirm this one. Your attendance is recorded
-                  either way — a fingerprint scan clears it fastest.
+                  lecturer can review it. The backend evaluates fingerprint
+                  evidence independently from your phone's GPS position.
                 </p>
               )}
               <div className="web-checkin-saved">
@@ -599,6 +610,8 @@ export function CheckIn({
                       ? "This phone is already in use for this class"
                       : errorCode === "code_expired"
                         ? "That code has expired"
+                        : errorCode === "location_required"
+                          ? "Location is required to check in"
                         : "Let's try that again"}
               </h2>
               <p>{error}</p>
@@ -625,16 +638,25 @@ export function CheckIn({
                   Request device approval
                 </button>
               )}
-              <button
-                className="button secondary-button"
-                onClick={() => {
-                  setStatus("idle");
-                  setError("");
-                  setErrorCode("");
-                }}
-              >
-                Try again
-              </button>
+              {errorCode === "location_required" ? (
+                <button
+                  className="button primary-button"
+                  onClick={() => void submit()}
+                >
+                  Retry location and check in
+                </button>
+              ) : (
+                <button
+                  className="button secondary-button"
+                  onClick={() => {
+                    setStatus("idle");
+                    setError("");
+                    setErrorCode("");
+                  }}
+                >
+                  Try again
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -802,10 +824,11 @@ export function CheckIn({
               <div className="section-title location-title">
                 <span className="step-number">03</span>
                 <div>
-                  <h2>Confirm your location (optional)</h2>
+                  <h2>Confirm your location (required)</h2>
                   <p>
-                    Sharing your location helps confirm you're in class. You can
-                    check in without it.
+                    Your browser must provide a location fix to send check-in.
+                    The class code remains decisive; distance from the venue
+                    alone will not block check-in.
                   </p>
                 </div>
               </div>
@@ -817,13 +840,20 @@ export function CheckIn({
                   <b>Location is only used for this check-in</b>
                   <span>
                     {locationText ||
-                      "Optional. If you share it, we only use it to confirm you're near the class venue."}
+                      "We request a fresh position when you check in and use it only as attendance evidence for this class."}
                   </span>
                 </div>
-                <button className="location-button" onClick={requestLocation}>
+                <button
+                  className="location-button"
+                  onClick={() => void requestLocation()}
+                  disabled={
+                    status === "pending" ||
+                    locationText === "Finding your location…"
+                  }
+                >
                   {locationText === "Finding your location…"
                     ? "Finding…"
-                    : "Share location"}
+                    : "Get location"}
                 </button>
               </div>
               {accuracy !== null && (
@@ -831,7 +861,7 @@ export function CheckIn({
                   className={`accuracy-note ${accuracy > 100 ? "accuracy-warning" : ""}`}
                 >
                   {accuracy > 100
-                    ? "Accuracy is over 100 m. You can still check in; moving near a window gives a clearer signal."
+                    ? "Accuracy is over 100 m. The server will evaluate it as evidence; distance alone does not block check-in."
                     : `Location accuracy: about ${Math.round(accuracy)} m`}
                 </div>
               )}
@@ -842,6 +872,7 @@ export function CheckIn({
                   disabled={
                     digits.length !== 6 ||
                     status === "pending" ||
+                    locationText === "Finding your location…" ||
                     !online ||
                     !selectedLiveClass ||
                     selectedLiveClass.already_checked_in ||

@@ -24,7 +24,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Student  | Find classes / search and filters                                                                    | Done        | Debounced search and department/level/kind filters call typed `/offerings/search`; results use API registration status and display closed, pending, approved, and available states.                                                                                                                                                                                                                                                                                                                                                                        |
 | Student  | Register / request to join a class                                                                   | Done        | `POST /offerings/{id}/registrations` registers open offerings or requests approval; mutation errors render on the offering, closed offerings are disabled, and pending status is visible. The contract has no specific closure-reason field, so the UI explains only that registration is closed.                                                                                                                                                                                                                                                          |
 | Student  | My courses                                                                                           | Done        | `/me/courses` drives course cards and attendance percentages/threshold styling; loading, API error/retry, and empty state with Find classes CTA are implemented.                                                                                                                                                                                                                                                                                                                                                                                           |
-| Student  | Check-in code and location entry                                                                     | Done        | Fetches live classes from `GET /me/live-classes`, lets the student select an active class, and submits that class's returned `session_id` to `POST /checkins`. Keyboard/touch input, location request, mock success/error selection, and offline-disabled submit are implemented.                                                                                                                                                                                                                                                                          |
+| Student  | Check-in code and location entry                                                                     | Done        | Fetches live classes from `GET /me/live-classes`; on every check-in attempt it requests a fresh valid GPS fix and sends `lat`, `lng`, `accuracy`, the selected session ID, code, and `device_hash`. Location denial/unavailability prevents the request and offers retry; a distant fix is sent without frontend geofence rejection. Backend `location_required` is retryable. Keyboard/touch input, mock success/error selection, and offline-disabled submit are implemented. |
 | Student  | Check-in success receipt                                                                             | Done        | Success state shows the saved result, timing/distance and fingerprint reminder.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Student  | Check-in offline/error/lockout states                                                                | Done        | Offline explanation and centralized error presentation render; scenario selection exercises mapped errors in development.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Student  | Attendance history                                                                                   | Done        | Course selector loads `/me/courses`, then per-course records from `/me/attendance`; loading/error/retry and no-courses/no-records states are implemented.                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -37,7 +37,7 @@ The approved design-reference screenshots are absent from `docs/design-reference
 | Lecturer | Board mode / power-cut fallback                                                                      | Done        | Portrait-friendly code/count display, fullscreen/Escape handling and feature-detected Wake Lock are implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Lecturer | Fixed-code confirmation and scanner coverage                                                         | Done        | Confirmed fixed-code action updates shared session state; scanner scenario updates shared scanner state and warnings appear.                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Lecturer | Live roster                                                                                          | Done        | Roster reads shared student attendance records and links to the report.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Lecturer | Session report / report table and filters                                                            | Partial     | Real mode loads every page from `/sessions/{id}/report`; rows, classification totals, scanner coverage, filtering, and overrides use API data. Locally started session IDs and course labels are retained in browser storage so finished reports can be reopened from Teaching or Session reports. Mock mode continues to use fixtures. The schema omits web/scan timestamps and department names, so the report shows unavailable timestamps and department IDs.                                                                                          |
+| Lecturer | Session report / report table and filters                                                            | Partial     | Real mode loads every page from `/sessions/{id}/report`; attendance status and classification are rendered separately, including `proxy` as review-needed, and backend reason codes are displayed when present. Scanner coverage, filtering, and overrides use API data. Locally started session IDs and course labels are retained in browser storage so finished reports can be reopened from Teaching or Session reports. Mock mode continues to use fixtures. The schema omits web/scan timestamps and department names, so the report shows unavailable timestamps and department IDs. |
 | Lecturer | Single and bulk attendance override                                                                  | Done        | Dialog validates “other” explanation, shows per-row mock results, updates shared attendance and records mock audit entries.                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Lecturer | Print attendance sheet and PDF                                                                       | Done        | The printable roster uses `/sessions/{id}/roster-sheet` in real mode and offers the server-generated PDF at `?format=pdf`; mock mode uses the fixture roster and browser print.                                                                                                                                                                                                                                                                                                                                                                            |
 | Lecturer | Lecturer enrolment                                                                                   | Placeholder | No lecturer enrolment flow is implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -706,9 +706,10 @@ name dropdown backed by the new public, unauthenticated endpoint.
 
 ## Device-captured venue location, required device binding, and the removal of location refusals
 
-Rebuilt the location story against the refreshed contract. Location is now
-advisory everywhere: nothing refuses a check-in on position, and a venue is a
-named room whose coordinates are optional and captured inside it.
+Rebuilt the location story against the refreshed contract. Venue distance is
+advisory evidence: a distant position does not refuse a valid-code check-in.
+Student web check-in now requires a valid browser fix, while venue coordinates
+remain optional and are captured inside the room.
 
 - Regenerated `src/api/schema.d.ts` from `api/openapi.yaml` (`pnpm gen:api`) and
   added `CaptureVenueLocationRequest/Response`, `SessionLocationRequest`,
@@ -745,8 +746,9 @@ named room whose coordinates are optional and captured inside it.
   "Recalibrate this room" (`POST /venues/{id}/location`). The live roster shows
   the reason pills and says confirmation is available from the report once the
   class ends; the bulk override itself still requires a closed session.
-- Student check-in: `device_hash` is always sent; `lat`/`lng`/`accuracy` are sent
-  only when the student shared a fix, and the location step is labelled optional.
+- Student check-in: `device_hash` is always sent with a fresh required
+  `lat`/`lng`/`accuracy` fix. A denied or invalid fix prevents the request and
+  offers a retry; a distant fix is sent without frontend geofence rejection.
   A null `distance_meters` renders nothing, `location_unverified` shows a
   non-accusing note, and a 409 `device_already_used` explains the one-student-
   per-phone rule without implying a stand-in.
@@ -768,8 +770,8 @@ named room whose coordinates are optional and captured inside it.
   mid-session post carries the unmodified accuracy and a drift result leaves the
   area in place, recalibration posts the device fix, and all four reasons render
   as one severity. Student (new `src/features/student/pages/index.test.tsx`) —
-  a check-in with no position still carries the device hash, a shared fix sends
-  `coords.accuracy` unchanged, and `device_already_used` is explained without
+  a successful check-in sends the GPS fix and device hash, a distant fix is not
+  rejected by the frontend, and `device_already_used` is explained without
   accusation. Admin (new `src/features/admin/pages/index.test.tsx`) — name-only
   creation with no coordinate inputs, the "not set yet" row, a successful
   recalibration, and the too-vague-fix guidance.
@@ -822,3 +824,31 @@ freshness and institution isolation; no cutoff interval is published.
 | `pnpm typecheck` | Passed; API generation and `tsc -b --pretty false --force` completed without errors. |
 | `pnpm test --maxWorkers=1` | Passed; 16 test files and 98 tests passed. |
 | `pnpm build` | Passed; Vite transformed 311 modules. CSS **73.54 kB / 15.44 kB gzip**; JS chunks **398.81 kB / 119.09 kB**, **52.42 kB / 12.95 kB**, and **38.00 kB / 10.65 kB gzip**. |
+
+## Required GPS for student check-in and backend-owned classifications
+
+Student check-in requests a fresh browser GPS position at submit time and
+sends `lat`, `lng`, and `accuracy` together with the selected session ID, code,
+and existing `device_hash`. Invalid, denied, unavailable, or timed-out
+positions prevent the request and expose a retry. The `location_required`
+backend response uses the same retry path. A valid but distant fix is sent;
+the frontend never performs a geofence refusal.
+
+The local OpenAPI copy and generated types now require the three location
+fields and include the backend `proxy` classification. Lecturer reports show
+attendance status separately from classification, label `proxy` as review
+needed, and display the backend reason when supplied. Scanner/fingerprint and
+GPS evidence are not inferred or recomputed in the UI; returned classifications
+and statuses are rendered as authoritative, including scan-only records.
+
+Deterministic tests cover successful GPS payloads, distant fixes, browser
+location failure and retry, backend `location_required` and retry, invalid
+browser coordinates, and proxy status/reason rendering. Real-backend behavior
+was not exercised.
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | Passed with 0 errors and 4 pre-existing Fast Refresh warnings in `src/shared/ui/primitives.tsx`. |
+| `pnpm typecheck` | Passed; API generation and `tsc -b --pretty false --force` completed without errors. |
+| `pnpm test -- --maxWorkers=1` | Passed; 16 test files and all 102 tests passed. |
+| `pnpm build` | Passed; Vite transformed 311 modules. CSS **73.65 kB / 15.46 kB gzip**; JS chunks **400.04 kB / 119.42 kB**, **52.42 kB / 12.95 kB**, and **39.37 kB / 10.98 kB gzip**. Built in 8.21s. |

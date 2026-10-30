@@ -10,6 +10,7 @@ describe("API error presentation", () => {
       "venue_has_open_session", "no_active_session", "device_key_revoked", "rate_limited",
       "device_already_used", "location_too_inaccurate", "venue_session_already_open",
       "venue_not_found", "offering_access_denied", "access_denied", "session_not_found",
+      "location_required",
     ]));
     for (const code of Object.keys(API_ERRORS)) {
       expect(presentApiError(code).message.length).toBeGreaterThan(0);

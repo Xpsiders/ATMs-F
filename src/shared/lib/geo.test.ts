@@ -24,6 +24,22 @@ describe("geolocation helper", () => {
     const location = await getCurrentPosition(geolocator("success"), true);
     expect(location).toEqual({ lat: 6.5, lng: 3.4, accuracy: 12 });
   });
+  it("rejects invalid coordinates from the browser", async () => {
+    const geo = {
+      getCurrentPosition: vi.fn((success: PositionCallback) =>
+        success({
+          coords: {
+            latitude: Number.NaN,
+            longitude: 3.4,
+            accuracy: 12,
+          },
+        } as GeolocationPosition),
+      ),
+    };
+    await expect(getCurrentPosition(geo, true)).rejects.toMatchObject({
+      code: "position-unavailable",
+    });
+  });
   it.each([
     [1, "permission-denied"],
     [2, "position-unavailable"],

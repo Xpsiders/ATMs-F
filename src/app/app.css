@@ -1848,6 +1848,13 @@
   color: var(--success);
   background: var(--success-bg);
 }
+.status-chip.present {
+  color: var(--info);
+  background: var(--info-bg);
+}
+.status-chip.present i {
+  background: var(--info);
+}
 .status-chip.verified i {
   background: var(--success);
 }
